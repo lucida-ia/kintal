@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import DashWrapper from "@/components/dashboard/dash-wrapper";
 import Header from "@/components/dashboard/header";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
 import {
@@ -12,6 +12,21 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import {
+  ChartContainer,
+  ChartTooltip,
+  ChartTooltipContent,
+  ChartLegend,
+  ChartLegendContent,
+} from "@/components/ui/chart";
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  ResponsiveContainer,
+} from "recharts";
+import {
   FileTextIcon,
   ClockIcon,
   ZapIcon,
@@ -19,6 +34,7 @@ import {
   UserIcon,
   CalendarIcon,
   FilterIcon,
+  TrendingUpIcon,
 } from "lucide-react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -70,9 +86,33 @@ interface AnswersApiResponse {
   };
 }
 
+interface ChartDataPoint {
+  date: string;
+  users: number;
+  exams: number;
+  questions: number;
+  answers: number;
+}
+
+interface ChartApiResponse {
+  success: boolean;
+  data: ChartDataPoint[];
+  dateRange: {
+    from: string;
+    to: string;
+  };
+}
+
 interface DateRange {
   from: Date | undefined;
   to: Date | undefined;
+}
+
+interface DataSeriesToggle {
+  users: boolean;
+  exams: boolean;
+  questions: boolean;
+  answers: boolean;
 }
 
 export default function LucidaDashboard() {
@@ -99,6 +139,17 @@ export default function LucidaDashboard() {
     to: undefined,
   });
   const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
+
+  // Chart-related state
+  const [chartData, setChartData] = useState<ChartDataPoint[]>([]);
+  const [chartLoading, setChartLoading] = useState(false);
+  const [chartError, setChartError] = useState<string | null>(null);
+  const [dataSeriesToggle, setDataSeriesToggle] = useState<DataSeriesToggle>({
+    users: true,
+    exams: true,
+    questions: true,
+    answers: true,
+  });
 
   const buildQueryParams = (dateRange: DateRange): string => {
     const params = new URLSearchParams();
@@ -199,6 +250,37 @@ export default function LucidaDashboard() {
     }
   };
 
+  const fetchChartData = async (dateRange?: DateRange) => {
+    setChartLoading(true);
+    setChartError(null);
+    try {
+      const queryParams = dateRange ? buildQueryParams(dateRange) : "";
+      const url = `/api/lucida/chart-data${
+        queryParams ? `?${queryParams}` : ""
+      }`;
+      const response = await fetch(url);
+      const data: ChartApiResponse = await response.json();
+
+      if (data.success) {
+        // Format dates for display
+        const formattedData = data.data.map((item) => ({
+          ...item,
+          formattedDate: format(new Date(item.date), "dd/MM", { locale: ptBR }),
+        }));
+        setChartData(formattedData);
+      } else {
+        setChartError("Failed to fetch chart data");
+        setChartData([]);
+      }
+    } catch (err) {
+      console.error("Error fetching chart data:", err);
+      setChartError("Failed to fetch chart data");
+      setChartData([]);
+    } finally {
+      setChartLoading(false);
+    }
+  };
+
   const fetchAllData = async (dateRange?: DateRange) => {
     setLoading(true);
     setError(null);
@@ -208,6 +290,7 @@ export default function LucidaDashboard() {
         fetchExams(dateRange),
         fetchQuestions(dateRange),
         fetchAnswers(dateRange),
+        fetchChartData(dateRange),
       ]);
     } catch (err) {
       console.error("Error fetching data:", err);
@@ -230,6 +313,13 @@ export default function LucidaDashboard() {
     fetchAllData();
   };
 
+  const toggleDataSeries = (series: keyof DataSeriesToggle) => {
+    setDataSeriesToggle((prev) => ({
+      ...prev,
+      [series]: !prev[series],
+    }));
+  };
+
   const formatWeeklyText = (count: number | string): string => {
     if (count === "..." || count === "Error") return count.toString();
     const numCount = Number(count);
@@ -248,34 +338,73 @@ export default function LucidaDashboard() {
     )}`;
   };
 
+  const chartConfig = {
+    users: {
+      label: "Usuários",
+      color: "#2563eb", // Blue
+    },
+    exams: {
+      label: "Provas",
+      color: "#dc2626", // Red
+    },
+    questions: {
+      label: "Questões",
+      color: "#16a34a", // Green
+    },
+    answers: {
+      label: "Respostas",
+      color: "#ca8a04", // Yellow/Orange
+    },
+  };
+
   const lucidaInfo = [
     {
       key: "totalUsers",
       title: "Total de Usuários",
       value: userCount,
       weeklyText: formatWeeklyText(weeklyUserCount),
-      icon: <UserIcon className="h-5 w-5 text-gray-400" />,
+      icon: (
+        <UserIcon
+          className="h-5 w-5"
+          style={{ color: chartConfig.users.color }}
+        />
+      ),
     },
     {
       key: "totalExams",
       title: "Total de Provas",
       value: examCount,
       weeklyText: formatWeeklyText(weeklyExamCount),
-      icon: <FileTextIcon className="h-5 w-5 text-gray-400" />,
+      icon: (
+        <FileTextIcon
+          className="h-5 w-5"
+          style={{ color: chartConfig.exams.color }}
+        />
+      ),
     },
     {
       key: "totalQuestions",
       title: "Total de Questões",
       value: questionCount,
       weeklyText: formatWeeklyText(weeklyQuestionCount),
-      icon: <FileStackIcon className="h-5 w-5 text-gray-400" />,
+      icon: (
+        <FileStackIcon
+          className="h-5 w-5"
+          style={{ color: chartConfig.questions.color }}
+        />
+      ),
     },
     {
       key: "totalAnswers",
       title: "Total de Respostas",
       value: answerCount,
       weeklyText: formatWeeklyText(weeklyAnswerCount),
-      icon: <ZapIcon className="h-5 w-5 text-gray-400" />,
+      icon: (
+        <ZapIcon
+          className="h-5 w-5"
+          style={{ color: chartConfig.answers.color }}
+        />
+      ),
     },
   ];
 
@@ -368,6 +497,141 @@ export default function LucidaDashboard() {
           </Card>
         ))}
       </div>
+
+      {/* Chart Section */}
+      <Card className="mt-6 dark:border-zinc-700 dark:bg-zinc-900/90 py-4">
+        <CardHeader>
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div className="space-y-1">
+              <CardTitle className="flex items-center gap-2 dark:text-zinc-50">
+                <TrendingUpIcon className="h-5 w-5" />
+                Evolução dos Dados
+              </CardTitle>
+              <p className="text-sm text-muted-foreground dark:text-zinc-400">
+                Visualização temporal dos dados da Lucida
+              </p>
+            </div>
+
+            {/* Data Series Toggle Controls */}
+            <div className="flex flex-wrap gap-2">
+              {Object.entries(chartConfig).map(([key, config]) => (
+                <Button
+                  key={key}
+                  variant={
+                    dataSeriesToggle[key as keyof DataSeriesToggle]
+                      ? "default"
+                      : "outline"
+                  }
+                  size="sm"
+                  onClick={() =>
+                    toggleDataSeries(key as keyof DataSeriesToggle)
+                  }
+                  className="text-xs"
+                >
+                  <div
+                    className="w-2 h-2 rounded-full mr-2"
+                    style={{
+                      backgroundColor: dataSeriesToggle[
+                        key as keyof DataSeriesToggle
+                      ]
+                        ? config.color
+                        : "transparent",
+                    }}
+                  />
+                  {config.label}
+                </Button>
+              ))}
+            </div>
+          </div>
+        </CardHeader>
+
+        <CardContent>
+          {chartError && (
+            <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
+              {chartError}
+            </div>
+          )}
+
+          {chartLoading ? (
+            <div className="flex items-center justify-center h-64">
+              <div className="text-muted-foreground dark:text-zinc-400">
+                Carregando dados do gráfico...
+              </div>
+            </div>
+          ) : chartData.length === 0 ? (
+            <div className="flex items-center justify-center h-64">
+              <div className="text-muted-foreground dark:text-zinc-400">
+                Nenhum dado disponível para o período selecionado
+              </div>
+            </div>
+          ) : (
+            <ChartContainer config={chartConfig} className="h-64 w-full">
+              <LineChart data={chartData}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis
+                  dataKey="formattedDate"
+                  tick={{ fontSize: 12 }}
+                  axisLine={false}
+                  tickLine={false}
+                />
+                <YAxis
+                  tick={{ fontSize: 12 }}
+                  axisLine={false}
+                  tickLine={false}
+                />
+                <ChartTooltip
+                  content={<ChartTooltipContent />}
+                  labelFormatter={(value) => `Data: ${value}`}
+                />
+
+                {dataSeriesToggle.users && (
+                  <Line
+                    type="monotone"
+                    dataKey="users"
+                    stroke={chartConfig.users.color}
+                    strokeWidth={2}
+                    dot={{ r: 3 }}
+                    connectNulls={false}
+                  />
+                )}
+
+                {dataSeriesToggle.exams && (
+                  <Line
+                    type="monotone"
+                    dataKey="exams"
+                    stroke={chartConfig.exams.color}
+                    strokeWidth={2}
+                    dot={{ r: 3 }}
+                    connectNulls={false}
+                  />
+                )}
+
+                {dataSeriesToggle.questions && (
+                  <Line
+                    type="monotone"
+                    dataKey="questions"
+                    stroke={chartConfig.questions.color}
+                    strokeWidth={2}
+                    dot={{ r: 3 }}
+                    connectNulls={false}
+                  />
+                )}
+
+                {dataSeriesToggle.answers && (
+                  <Line
+                    type="monotone"
+                    dataKey="answers"
+                    stroke={chartConfig.answers.color}
+                    strokeWidth={2}
+                    dot={{ r: 3 }}
+                    connectNulls={false}
+                  />
+                )}
+              </LineChart>
+            </ChartContainer>
+          )}
+        </CardContent>
+      </Card>
     </DashWrapper>
   );
 }
