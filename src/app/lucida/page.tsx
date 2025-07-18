@@ -304,6 +304,16 @@ export default function LucidaDashboard() {
     fetchAllData();
   }, []);
 
+  // Auto-refresh data every 5 minutes
+  useEffect(() => {
+    const interval = setInterval(() => {
+      fetchAllData(dateRange);
+    }, 5 * 60 * 1000); // 5 minutes in milliseconds
+
+    // Cleanup interval on component unmount
+    return () => clearInterval(interval);
+  }, [dateRange]); // Re-setup interval when dateRange changes
+
   const handleFilter = () => {
     fetchAllData(dateRange);
   };
