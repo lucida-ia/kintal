@@ -45,7 +45,7 @@ export async function GET(request: NextRequest) {
           count: { $sum: 1 },
         },
       },
-      { $sort: { _id: 1 } },
+      { $sort: { _id: 1 as const } },
     ];
 
     const examPipeline = [
@@ -62,7 +62,7 @@ export async function GET(request: NextRequest) {
           count: { $sum: 1 },
         },
       },
-      { $sort: { _id: 1 } },
+      { $sort: { _id: 1 as const } },
     ];
 
     const questionPipeline = [
@@ -79,7 +79,7 @@ export async function GET(request: NextRequest) {
           count: { $sum: { $size: { $ifNull: ["$questions", []] } } },
         },
       },
-      { $sort: { _id: 1 } },
+      { $sort: { _id: 1 as const } },
     ];
 
     const answerPipeline = [
@@ -96,7 +96,7 @@ export async function GET(request: NextRequest) {
           count: { $sum: 1 },
         },
       },
-      { $sort: { _id: 1 } },
+      { $sort: { _id: 1 as const } },
     ];
 
     // Execute all aggregations in parallel
