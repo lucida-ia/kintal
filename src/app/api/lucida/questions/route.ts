@@ -7,10 +7,29 @@ export async function GET(request: NextRequest) {
     // Connect to MongoDB
     await connectToDB();
 
-    // Get all exams and calculate total questions
-    const exams = await Exam.find({}).select("questions questionCount");
+    // Extract query parameters
+    const { searchParams } = new URL(request.url);
+    const fromDate = searchParams.get("from");
+    const toDate = searchParams.get("to");
 
-    // Sum up all questions from all exams
+    // Build filter object
+    const filter: Record<string, unknown> = {};
+    if (fromDate || toDate) {
+      filter.createdAt = {};
+      if (fromDate) {
+        (filter.createdAt as Record<string, Date>).$gte = new Date(fromDate);
+      }
+      if (toDate) {
+        (filter.createdAt as Record<string, Date>).$lte = new Date(toDate);
+      }
+    }
+
+    // Get filtered exams and calculate total questions
+    const exams = await Exam.find(filter).select(
+      "questions questionCount createdAt"
+    );
+
+    // Sum up all questions from filtered exams
     const totalQuestions = exams.reduce((sum, exam) => {
       return sum + (exam.questions ? exam.questions.length : 0);
     }, 0);
@@ -24,9 +43,20 @@ export async function GET(request: NextRequest) {
     const oneWeekAgo = new Date();
     oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
 
-    const weeklyExams = await Exam.find({
-      createdAt: { $gte: oneWeekAgo },
-    }).select("questions questionCount");
+    // If we have date filters, calculate weekly based on the filtered period
+    // Otherwise, use the standard 7-day window
+    let weeklyFilter: Record<string, unknown> = {};
+    if (fromDate || toDate) {
+      // For filtered data, show the count within the filtered period
+      weeklyFilter = { ...filter };
+    } else {
+      // For unfiltered data, show last 7 days
+      weeklyFilter = { createdAt: { $gte: oneWeekAgo } };
+    }
+
+    const weeklyExams = await Exam.find(weeklyFilter).select(
+      "questions questionCount"
+    );
 
     const weeklyQuestions = weeklyExams.reduce((sum, exam) => {
       return sum + (exam.questions ? exam.questions.length : 0);

@@ -4,13 +4,24 @@ import { useState, useEffect } from "react";
 import DashWrapper from "@/components/dashboard/dash-wrapper";
 import Header from "@/components/dashboard/header";
 import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Calendar } from "@/components/ui/calendar";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   FileTextIcon,
   ClockIcon,
   ZapIcon,
   FileStackIcon,
   UserIcon,
+  CalendarIcon,
+  FilterIcon,
 } from "lucide-react";
+import { format } from "date-fns";
+import { ptBR } from "date-fns/locale";
 
 interface User {
   id: string;
@@ -59,6 +70,11 @@ interface AnswersApiResponse {
   };
 }
 
+interface DateRange {
+  from: Date | undefined;
+  to: Date | undefined;
+}
+
 export default function LucidaDashboard() {
   const [userCount, setUserCount] = useState<number | string>("...");
   const [examCount, setExamCount] = useState<number | string>("...");
@@ -78,104 +94,141 @@ export default function LucidaDashboard() {
   );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [dateRange, setDateRange] = useState<DateRange>({
+    from: undefined,
+    to: undefined,
+  });
+  const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
 
-  useEffect(() => {
-    const fetchUsers = async () => {
-      try {
-        const response = await fetch("/api/lucida/users");
-        const data: ApiResponse = await response.json();
+  const buildQueryParams = (dateRange: DateRange): string => {
+    const params = new URLSearchParams();
+    if (dateRange.from) {
+      params.append("from", dateRange.from.toISOString());
+    }
+    if (dateRange.to) {
+      params.append("to", dateRange.to.toISOString());
+    }
+    return params.toString();
+  };
 
-        if (data.success) {
-          setUserCount(data.count);
-          setWeeklyUserCount(data.weeklyCount);
-        } else {
-          setError("Failed to fetch users");
-          setUserCount("Error");
-          setWeeklyUserCount("Error");
-        }
-      } catch (err) {
-        console.error("Error fetching users:", err);
+  const fetchUsers = async (dateRange?: DateRange) => {
+    try {
+      const queryParams = dateRange ? buildQueryParams(dateRange) : "";
+      const url = `/api/lucida/users${queryParams ? `?${queryParams}` : ""}`;
+      const response = await fetch(url);
+      const data: ApiResponse = await response.json();
+
+      if (data.success) {
+        setUserCount(data.count);
+        setWeeklyUserCount(data.weeklyCount);
+      } else {
         setError("Failed to fetch users");
         setUserCount("Error");
         setWeeklyUserCount("Error");
       }
-    };
+    } catch (err) {
+      console.error("Error fetching users:", err);
+      setError("Failed to fetch users");
+      setUserCount("Error");
+      setWeeklyUserCount("Error");
+    }
+  };
 
-    const fetchExams = async () => {
-      try {
-        const response = await fetch("/api/lucida/exams");
-        const data: ApiResponse = await response.json();
+  const fetchExams = async (dateRange?: DateRange) => {
+    try {
+      const queryParams = dateRange ? buildQueryParams(dateRange) : "";
+      const url = `/api/lucida/exams${queryParams ? `?${queryParams}` : ""}`;
+      const response = await fetch(url);
+      const data: ApiResponse = await response.json();
 
-        if (data.success) {
-          setExamCount(data.count);
-          setWeeklyExamCount(data.weeklyCount);
-        } else {
-          setExamCount("Error");
-          setWeeklyExamCount("Error");
-        }
-      } catch (err) {
-        console.error("Error fetching exams:", err);
+      if (data.success) {
+        setExamCount(data.count);
+        setWeeklyExamCount(data.weeklyCount);
+      } else {
         setExamCount("Error");
         setWeeklyExamCount("Error");
       }
-    };
+    } catch (err) {
+      console.error("Error fetching exams:", err);
+      setExamCount("Error");
+      setWeeklyExamCount("Error");
+    }
+  };
 
-    const fetchQuestions = async () => {
-      try {
-        const response = await fetch("/api/lucida/questions");
-        const data: QuestionsApiResponse = await response.json();
+  const fetchQuestions = async (dateRange?: DateRange) => {
+    try {
+      const queryParams = dateRange ? buildQueryParams(dateRange) : "";
+      const url = `/api/lucida/questions${
+        queryParams ? `?${queryParams}` : ""
+      }`;
+      const response = await fetch(url);
+      const data: QuestionsApiResponse = await response.json();
 
-        if (data.success) {
-          setQuestionCount(data.data.totalQuestions);
-          setWeeklyQuestionCount(data.weeklyCount);
-        } else {
-          setQuestionCount("Error");
-          setWeeklyQuestionCount("Error");
-        }
-      } catch (err) {
-        console.error("Error fetching questions:", err);
+      if (data.success) {
+        setQuestionCount(data.data.totalQuestions);
+        setWeeklyQuestionCount(data.weeklyCount);
+      } else {
         setQuestionCount("Error");
         setWeeklyQuestionCount("Error");
       }
-    };
+    } catch (err) {
+      console.error("Error fetching questions:", err);
+      setQuestionCount("Error");
+      setWeeklyQuestionCount("Error");
+    }
+  };
 
-    const fetchAnswers = async () => {
-      try {
-        const response = await fetch("/api/lucida/answers");
-        const data: AnswersApiResponse = await response.json();
+  const fetchAnswers = async (dateRange?: DateRange) => {
+    try {
+      const queryParams = dateRange ? buildQueryParams(dateRange) : "";
+      const url = `/api/lucida/answers${queryParams ? `?${queryParams}` : ""}`;
+      const response = await fetch(url);
+      const data: AnswersApiResponse = await response.json();
 
-        if (data.success) {
-          setAnswerCount(data.count);
-          setWeeklyAnswerCount(data.weeklyCount);
-        } else {
-          setAnswerCount("Error");
-          setWeeklyAnswerCount("Error");
-        }
-      } catch (err) {
-        console.error("Error fetching answers:", err);
+      if (data.success) {
+        setAnswerCount(data.count);
+        setWeeklyAnswerCount(data.weeklyCount);
+      } else {
         setAnswerCount("Error");
         setWeeklyAnswerCount("Error");
       }
-    };
+    } catch (err) {
+      console.error("Error fetching answers:", err);
+      setAnswerCount("Error");
+      setWeeklyAnswerCount("Error");
+    }
+  };
 
-    const fetchAllData = async () => {
-      try {
-        await Promise.all([
-          fetchUsers(),
-          fetchExams(),
-          fetchQuestions(),
-          fetchAnswers(),
-        ]);
-      } catch (err) {
-        console.error("Error fetching data:", err);
-        setError("Failed to fetch data");
-      } finally {
-        setLoading(false);
-      }
-    };
+  const fetchAllData = async (dateRange?: DateRange) => {
+    setLoading(true);
+    setError(null);
+    try {
+      await Promise.all([
+        fetchUsers(dateRange),
+        fetchExams(dateRange),
+        fetchQuestions(dateRange),
+        fetchAnswers(dateRange),
+      ]);
+    } catch (err) {
+      console.error("Error fetching data:", err);
+      setError("Failed to fetch data");
+    } finally {
+      setLoading(false);
+    }
+  };
 
+  useEffect(() => {
     fetchAllData();
   }, []);
+
+  const handleFilter = () => {
+    fetchAllData(dateRange);
+  };
+
+  const handleClearFilter = () => {
+    setDateRange({ from: undefined, to: undefined });
+    fetchAllData();
+  };
 
   const formatWeeklyText = (count: number | string): string => {
     if (count === "..." || count === "Error") return count.toString();
@@ -183,6 +236,16 @@ export default function LucidaDashboard() {
     if (numCount === 0) return "Nenhum novo essa semana";
     if (numCount === 1) return "1 novo essa semana";
     return `${numCount} novos essa semana`;
+  };
+
+  const formatDateRange = (): string => {
+    if (!dateRange.from) return "Selecione o período";
+    if (!dateRange.to) return format(dateRange.from, "PPP", { locale: ptBR });
+    return `${format(dateRange.from, "PPP", { locale: ptBR })} - ${format(
+      dateRange.to,
+      "PPP",
+      { locale: ptBR }
+    )}`;
   };
 
   const lucidaInfo = [
@@ -225,6 +288,62 @@ export default function LucidaDashboard() {
           {error}
         </div>
       )}
+
+      {/* Date Filter Section */}
+      <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between mt-4 sm:mt-6 p-4 bg-gray-50 dark:bg-zinc-800/50 rounded-lg border dark:border-zinc-700">
+        <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
+          <Popover open={isDatePickerOpen} onOpenChange={setIsDatePickerOpen}>
+            <PopoverTrigger asChild>
+              <Button
+                variant="outline"
+                className="w-full sm:w-[300px] justify-start text-left font-normal"
+              >
+                <CalendarIcon className="mr-2 h-4 w-4" />
+                {formatDateRange()}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-0" align="start">
+              <Calendar
+                mode="range"
+                defaultMonth={dateRange.from}
+                selected={{
+                  from: dateRange.from,
+                  to: dateRange.to,
+                }}
+                onSelect={(range) => {
+                  setDateRange({
+                    from: range?.from,
+                    to: range?.to,
+                  });
+                }}
+                numberOfMonths={2}
+                locale={ptBR}
+              />
+            </PopoverContent>
+          </Popover>
+
+          <div className="flex gap-2">
+            <Button
+              onClick={handleFilter}
+              disabled={loading}
+              className="flex items-center gap-2"
+            >
+              <FilterIcon className="h-4 w-4" />
+              {loading ? "Carregando..." : "Filtrar"}
+            </Button>
+
+            {(dateRange.from || dateRange.to) && (
+              <Button
+                variant="outline"
+                onClick={handleClearFilter}
+                disabled={loading}
+              >
+                Limpar Filtro
+              </Button>
+            )}
+          </div>
+        </div>
+      </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mt-4 sm:mt-6">
         {lucidaInfo.map((value) => (
