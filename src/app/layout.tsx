@@ -15,8 +15,8 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Personal Dashboard | Kintal",
-  description: "Personal dashboard for analyzing project data and insights",
+  title: "Kintal",
+  description: "Dashboard dos nossos projetos",
   viewport: "width=device-width, initial-scale=1, maximum-scale=1",
 };
 
