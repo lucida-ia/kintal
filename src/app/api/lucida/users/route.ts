@@ -10,10 +10,19 @@ export async function GET(request: NextRequest) {
     // Get all users from the database
     const users = await User.find({}).select("-__v").sort({ createdAt: -1 });
 
+    // Calculate users created in the last 7 days
+    const oneWeekAgo = new Date();
+    oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+
+    const weeklyUsers = await User.countDocuments({
+      createdAt: { $gte: oneWeekAgo },
+    });
+
     return NextResponse.json({
       success: true,
       data: users,
       count: users.length,
+      weeklyCount: weeklyUsers,
     });
   } catch (error) {
     console.error("Error fetching users:", error);

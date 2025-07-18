@@ -31,7 +31,7 @@ export function ThemeToggle() {
     >
       {theme === "dark" ? (
         <svg
-          className="h-4 w-4 text-yellow-500"
+          className="h-4 w-4 text-white"
           fill="currentColor"
           viewBox="0 0 24 24"
         >

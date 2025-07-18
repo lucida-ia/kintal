@@ -20,6 +20,18 @@ export async function GET(request: NextRequest) {
       return sum + (exam.questionCount || 0);
     }, 0);
 
+    // Calculate exams (and their questions) created in the last 7 days
+    const oneWeekAgo = new Date();
+    oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+
+    const weeklyExams = await Exam.find({
+      createdAt: { $gte: oneWeekAgo },
+    }).select("questions questionCount");
+
+    const weeklyQuestions = weeklyExams.reduce((sum, exam) => {
+      return sum + (exam.questions ? exam.questions.length : 0);
+    }, 0);
+
     return NextResponse.json({
       success: true,
       data: {
@@ -27,6 +39,7 @@ export async function GET(request: NextRequest) {
         totalQuestionsFromCount,
         examCount: exams.length,
       },
+      weeklyCount: weeklyQuestions,
     });
   } catch (error) {
     console.error("Error calculating questions sum:", error);

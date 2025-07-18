@@ -10,10 +10,19 @@ export async function GET(request: NextRequest) {
     // Get all results from the database
     const results = await Result.find({}).sort({ createdAt: -1 });
 
+    // Calculate results created in the last 7 days
+    const oneWeekAgo = new Date();
+    oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+
+    const weeklyResults = await Result.countDocuments({
+      createdAt: { $gte: oneWeekAgo },
+    });
+
     return NextResponse.json({
       success: true,
       data: results,
       count: results.length,
+      weeklyCount: weeklyResults,
       summary: {
         totalResults: results.length,
       },

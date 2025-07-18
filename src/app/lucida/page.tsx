@@ -29,6 +29,7 @@ interface ApiResponse {
   success: boolean;
   data: User[];
   count: number;
+  weeklyCount: number;
 }
 
 interface QuestionsApiResponse {
@@ -38,6 +39,7 @@ interface QuestionsApiResponse {
     totalQuestionsFromCount: number;
     examCount: number;
   };
+  weeklyCount: number;
 }
 
 interface AnswersApiResponse {
@@ -50,6 +52,7 @@ interface AnswersApiResponse {
     correctAnswer: unknown;
   }>;
   count: number;
+  weeklyCount: number;
   summary: {
     totalExams: number;
     totalAnswers: number;
@@ -61,6 +64,18 @@ export default function LucidaDashboard() {
   const [examCount, setExamCount] = useState<number | string>("...");
   const [questionCount, setQuestionCount] = useState<number | string>("...");
   const [answerCount, setAnswerCount] = useState<number | string>("...");
+  const [weeklyUserCount, setWeeklyUserCount] = useState<number | string>(
+    "..."
+  );
+  const [weeklyExamCount, setWeeklyExamCount] = useState<number | string>(
+    "..."
+  );
+  const [weeklyQuestionCount, setWeeklyQuestionCount] = useState<
+    number | string
+  >("...");
+  const [weeklyAnswerCount, setWeeklyAnswerCount] = useState<number | string>(
+    "..."
+  );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -72,14 +87,17 @@ export default function LucidaDashboard() {
 
         if (data.success) {
           setUserCount(data.count);
+          setWeeklyUserCount(data.weeklyCount);
         } else {
           setError("Failed to fetch users");
           setUserCount("Error");
+          setWeeklyUserCount("Error");
         }
       } catch (err) {
         console.error("Error fetching users:", err);
         setError("Failed to fetch users");
         setUserCount("Error");
+        setWeeklyUserCount("Error");
       }
     };
 
@@ -90,12 +108,15 @@ export default function LucidaDashboard() {
 
         if (data.success) {
           setExamCount(data.count);
+          setWeeklyExamCount(data.weeklyCount);
         } else {
           setExamCount("Error");
+          setWeeklyExamCount("Error");
         }
       } catch (err) {
         console.error("Error fetching exams:", err);
         setExamCount("Error");
+        setWeeklyExamCount("Error");
       }
     };
 
@@ -106,12 +127,15 @@ export default function LucidaDashboard() {
 
         if (data.success) {
           setQuestionCount(data.data.totalQuestions);
+          setWeeklyQuestionCount(data.weeklyCount);
         } else {
           setQuestionCount("Error");
+          setWeeklyQuestionCount("Error");
         }
       } catch (err) {
         console.error("Error fetching questions:", err);
         setQuestionCount("Error");
+        setWeeklyQuestionCount("Error");
       }
     };
 
@@ -122,12 +146,15 @@ export default function LucidaDashboard() {
 
         if (data.success) {
           setAnswerCount(data.count);
+          setWeeklyAnswerCount(data.weeklyCount);
         } else {
           setAnswerCount("Error");
+          setWeeklyAnswerCount("Error");
         }
       } catch (err) {
         console.error("Error fetching answers:", err);
         setAnswerCount("Error");
+        setWeeklyAnswerCount("Error");
       }
     };
 
@@ -150,29 +177,41 @@ export default function LucidaDashboard() {
     fetchAllData();
   }, []);
 
+  const formatWeeklyText = (count: number | string): string => {
+    if (count === "..." || count === "Error") return count.toString();
+    const numCount = Number(count);
+    if (numCount === 0) return "Nenhum novo essa semana";
+    if (numCount === 1) return "1 novo essa semana";
+    return `${numCount} novos essa semana`;
+  };
+
   const lucidaInfo = [
     {
       key: "totalUsers",
       title: "Total de Usuários",
       value: userCount,
+      weeklyText: formatWeeklyText(weeklyUserCount),
       icon: <UserIcon className="h-5 w-5 text-gray-400" />,
     },
     {
       key: "totalExams",
       title: "Total de Provas",
       value: examCount,
+      weeklyText: formatWeeklyText(weeklyExamCount),
       icon: <FileTextIcon className="h-5 w-5 text-gray-400" />,
     },
     {
       key: "totalQuestions",
       title: "Total de Questões",
       value: questionCount,
+      weeklyText: formatWeeklyText(weeklyQuestionCount),
       icon: <FileStackIcon className="h-5 w-5 text-gray-400" />,
     },
     {
       key: "totalAnswers",
       title: "Total de Respostas",
       value: answerCount,
+      weeklyText: formatWeeklyText(weeklyAnswerCount),
       icon: <ZapIcon className="h-5 w-5 text-gray-400" />,
     },
   ];
@@ -203,7 +242,9 @@ export default function LucidaDashboard() {
                 <div className="text-2xl font-bold text-gray-900 dark:text-zinc-50">
                   {value.value}
                 </div>
-                <p className="text-xs text-gray-500">{value.key}</p>
+                <p className="text-xs text-gray-500 dark:text-zinc-400">
+                  {value.weeklyText}
+                </p>
               </div>
               <div className="p-2">{value.icon}</div>
             </CardContent>

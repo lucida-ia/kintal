@@ -10,10 +10,19 @@ export async function GET(request: NextRequest) {
     // Get all exams from the database
     const exams = await Exam.find({}).select("-__v").sort({ createdAt: -1 });
 
+    // Calculate exams created in the last 7 days
+    const oneWeekAgo = new Date();
+    oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+
+    const weeklyExams = await Exam.countDocuments({
+      createdAt: { $gte: oneWeekAgo },
+    });
+
     return NextResponse.json({
       success: true,
       data: exams,
       count: exams.length,
+      weeklyCount: weeklyExams,
     });
   } catch (error) {
     console.error("Error fetching exams:", error);
