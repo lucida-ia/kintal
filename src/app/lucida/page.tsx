@@ -226,15 +226,13 @@ export default function LucidaDashboard() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mt-6">
-        {/* Total Projects Card */}
-
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mt-4 sm:mt-6">
         {lucidaInfo.map((value) => (
           <Card
             className="hover:shadow-lg transition-all duration-200 dark:shadow-zinc-900/20 dark:border-zinc-700 dark:bg-zinc-900/90 dark:text-zinc-50"
             key={value.key}
           >
-            <CardContent className="flex items-start justify-between p-6 dark:text-zinc-50">
+            <CardContent className="flex items-start justify-between p-4 sm:p-6 dark:text-zinc-50">
               <div className="space-y-1">
                 <p className="text-sm font-medium text-gray-600 dark:text-zinc-50">
                   {value.title}

@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import { ThemeProvider } from "../components/theme-provider";
-import { ThemeToggle } from "../components/theme-toggle";
 import Navbar from "../components/dashboard/navbar";
 
 const inter = Inter({
@@ -18,6 +17,7 @@ const jetbrainsMono = JetBrains_Mono({
 export const metadata: Metadata = {
   title: "Personal Dashboard | Kintal",
   description: "Personal dashboard for analyzing project data and insights",
+  viewport: "width=device-width, initial-scale=1, maximum-scale=1",
 };
 
 export default function RootLayout({
@@ -41,11 +41,11 @@ export default function RootLayout({
             className="min-h-screen bg-gradient-to-br from-zinc-100 to-zinc-200 dark:from-black dark:to-zinc-900"
             suppressHydrationWarning
           >
-            <div className="flex">
+            <div className="flex flex-col md:flex-row">
               <Navbar />
 
               {/* Main Content */}
-              <main className="flex-1 overflow-y-auto bg-white dark:bg-zinc-900">
+              <main className="flex-1 overflow-y-auto bg-white dark:bg-zinc-900 min-h-screen">
                 {children}
               </main>
             </div>
