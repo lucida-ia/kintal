@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { ThemeToggle } from "../theme-toggle";
+import { KintalLogo } from "../logo";
 
 export default function Navbar() {
   return (
@@ -8,9 +9,9 @@ export default function Navbar() {
       <div className="p-6 border-b border-zinc-200 dark:border-zinc-700">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-2">
-            <h1 className="text-xl font-bold text-zinc-900 dark:text-white font-mono">
-              Kintal
-            </h1>
+            <div className="w-2/3">
+              <KintalLogo />
+            </div>
           </div>
           <ThemeToggle />
         </div>
