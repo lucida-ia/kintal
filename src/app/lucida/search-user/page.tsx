@@ -33,6 +33,7 @@ import {
   XCircleIcon,
   ChevronDownIcon,
   ChevronRightIcon,
+  DownloadIcon,
 } from "lucide-react";
 
 interface User {
@@ -200,6 +201,86 @@ export default function SearchUser() {
         (result) => result.examId === examId
       ) || []
     );
+  };
+
+  const convertToCSV = (data: Result[]) => {
+    if (!data || data.length === 0) return "";
+
+    const headers = [
+      "Email",
+      "Titulo do Exame",
+      "Pontuacao",
+      "Total de Questoes",
+      "Percentual",
+      "Data de Realizacao",
+      "ID do Exame",
+      "ID da Classe",
+    ];
+
+    const csvContent = [
+      headers.join(","),
+      ...data.map((result) =>
+        [
+          `"${result.email}"`,
+          `"${result.examTitle}"`,
+          result.score,
+          result.examQuestionCount,
+          (result.percentage * 100).toFixed(2) + "%",
+          `"${formatDate(result.createdAt)}"`,
+          result.examId,
+          result.classId,
+        ].join(",")
+      ),
+    ].join("\n");
+
+    return csvContent;
+  };
+
+  const downloadCSV = (csvContent: string, filename: string) => {
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const link = document.createElement("a");
+
+    if (link.download !== undefined) {
+      const url = URL.createObjectURL(blob);
+      link.setAttribute("href", url);
+      link.setAttribute("download", filename);
+      link.style.visibility = "hidden";
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
+  };
+
+  const exportAllResults = () => {
+    if (
+      !searchResult?.data?.results ||
+      searchResult.data.results.length === 0
+    ) {
+      setError("Nenhum resultado para exportar");
+      return;
+    }
+
+    const csvContent = convertToCSV(searchResult.data.results);
+    const filename = `resultados_usuario_${searchResult.data.user.id}_${
+      new Date().toISOString().split("T")[0]
+    }.csv`;
+    downloadCSV(csvContent, filename);
+  };
+
+  const exportExamResults = (examId: string, examTitle: string) => {
+    const examResults = getResultsForExam(examId);
+
+    if (examResults.length === 0) {
+      setError("Nenhum resultado encontrado para este exame");
+      return;
+    }
+
+    const csvContent = convertToCSV(examResults);
+    const sanitizedTitle = examTitle.replace(/[^a-zA-Z0-9]/g, "_");
+    const filename = `resultados_${sanitizedTitle}_${
+      new Date().toISOString().split("T")[0]
+    }.csv`;
+    downloadCSV(csvContent, filename);
   };
 
   return (
@@ -378,6 +459,35 @@ export default function SearchUser() {
                   </Card>
                 </div>
 
+                {/* Export Section */}
+                {searchResult.data.counts.results > 0 && (
+                  <Card className="hover:shadow-lg transition-all duration-200 dark:shadow-zinc-900/20 dark:border-zinc-700 dark:bg-zinc-900/90">
+                    <CardContent className="p-6">
+                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                        <div>
+                          <h3 className="text-lg font-medium text-gray-900 dark:text-zinc-50 mb-1">
+                            Exportar Dados
+                          </h3>
+                          <p className="text-sm text-gray-500 dark:text-zinc-400">
+                            Baixe todos os resultados deste usuário em formato
+                            CSV
+                          </p>
+                        </div>
+                        <Button
+                          onClick={exportAllResults}
+                          className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white w-full sm:w-auto"
+                        >
+                          <DownloadIcon className="h-4 w-4" />
+                          <span className="sm:hidden">Exportar Todos</span>
+                          <span className="hidden sm:inline">
+                            Exportar Todos os Resultados
+                          </span>
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+
                 {/* Exams Table with Nested Results */}
                 {searchResult.data.exams.length > 0 && (
                   <Card className="hover:shadow-lg transition-all duration-200 dark:shadow-zinc-900/20 dark:border-zinc-700 dark:bg-zinc-900/90 py-8">
@@ -542,11 +652,27 @@ export default function SearchUser() {
                                 <div className="p-4 bg-white dark:bg-zinc-900/50 border-t">
                                   {examResults.length > 0 ? (
                                     <div>
-                                      <div className="flex items-center gap-2 mb-3">
-                                        <TargetIcon className="h-4 w-4 text-gray-600 dark:text-zinc-400" />
-                                        <h4 className="font-medium text-gray-700 dark:text-zinc-300">
-                                          Resultados ({examResults.length})
-                                        </h4>
+                                      <div className="flex items-center justify-between mb-3">
+                                        <div className="flex items-center gap-2">
+                                          <TargetIcon className="h-4 w-4 text-gray-600 dark:text-zinc-400" />
+                                          <h4 className="font-medium text-gray-700 dark:text-zinc-300">
+                                            Resultados ({examResults.length})
+                                          </h4>
+                                        </div>
+                                        <Button
+                                          variant="outline"
+                                          size="sm"
+                                          onClick={() =>
+                                            exportExamResults(
+                                              exam._id,
+                                              exam.title
+                                            )
+                                          }
+                                          className="flex items-center gap-2 text-green-600 border-green-600 hover:bg-green-50 dark:text-green-400 dark:border-green-400 dark:hover:bg-green-900/20"
+                                        >
+                                          <DownloadIcon className="h-3 w-3" />
+                                          Exportar
+                                        </Button>
                                       </div>
 
                                       {/* Mobile Results Layout */}
