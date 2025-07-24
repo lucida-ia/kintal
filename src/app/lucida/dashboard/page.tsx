@@ -35,6 +35,9 @@ import {
   CalendarIcon,
   FilterIcon,
   TrendingUpIcon,
+  DollarSignIcon,
+  ArrowUpIcon,
+  ArrowDownIcon,
 } from "lucide-react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -115,6 +118,18 @@ interface DataSeriesToggle {
   answers: boolean;
 }
 
+interface CostResult {
+  model: string;
+  type: string;
+  total_cost: number;
+}
+
+interface CostData {
+  totalCost: number;
+  inputCost: number;
+  outputCost: number;
+}
+
 export default function LucidaDashboard() {
   const [userCount, setUserCount] = useState<number | string>("...");
   const [examCount, setExamCount] = useState<number | string>("...");
@@ -150,6 +165,15 @@ export default function LucidaDashboard() {
     questions: true,
     answers: true,
   });
+
+  // Cost-related state
+  const [costData, setCostData] = useState<CostData>({
+    totalCost: 0,
+    inputCost: 0,
+    outputCost: 0,
+  });
+  const [costLoading, setCostLoading] = useState(false);
+  const [costError, setCostError] = useState<string | null>(null);
 
   const buildQueryParams = (dateRange: DateRange): string => {
     const params = new URLSearchParams();
@@ -281,6 +305,58 @@ export default function LucidaDashboard() {
     }
   };
 
+  const fetchCosts = async (dateRange?: DateRange) => {
+    setCostLoading(true);
+    setCostError(null);
+    try {
+      // Convert dateRange to unix timestamps if provided
+      let startTime, endTime;
+      if (dateRange?.from) {
+        startTime = Math.floor(dateRange.from.getTime() / 1000);
+      } else {
+        // Default to 30 days ago
+        startTime = Math.floor((Date.now() - 30 * 24 * 60 * 60 * 1000) / 1000);
+      }
+
+      if (dateRange?.to) {
+        endTime = Math.floor(dateRange.to.getTime() / 1000);
+      } else {
+        // Default to now
+        endTime = Math.floor(Date.now() / 1000);
+      }
+
+      const url = `/api/openai/costs?start_time=${startTime}&end_time=${endTime}`;
+      const response = await fetch(url);
+      const data: CostResult[] = await response.json();
+
+      if (Array.isArray(data)) {
+        // Calculate totals
+        const totalCost = data.reduce((sum, item) => sum + item.total_cost, 0);
+        const inputCost = data
+          .filter((item) => item.type.includes("input"))
+          .reduce((sum, item) => sum + item.total_cost, 0);
+        const outputCost = data
+          .filter((item) => item.type.includes("output"))
+          .reduce((sum, item) => sum + item.total_cost, 0);
+
+        setCostData({
+          totalCost,
+          inputCost,
+          outputCost,
+        });
+      } else {
+        setCostError("Failed to fetch cost data");
+        setCostData({ totalCost: 0, inputCost: 0, outputCost: 0 });
+      }
+    } catch (err) {
+      console.error("Error fetching costs:", err);
+      setCostError("Failed to fetch cost data");
+      setCostData({ totalCost: 0, inputCost: 0, outputCost: 0 });
+    } finally {
+      setCostLoading(false);
+    }
+  };
+
   const fetchAllData = async (dateRange?: DateRange) => {
     setLoading(true);
     setError(null);
@@ -291,6 +367,7 @@ export default function LucidaDashboard() {
         fetchQuestions(dateRange),
         fetchAnswers(dateRange),
         fetchChartData(dateRange),
+        fetchCosts(dateRange),
       ]);
     } catch (err) {
       console.error("Error fetching data:", err);
@@ -642,6 +719,78 @@ export default function LucidaDashboard() {
           )}
         </CardContent>
       </Card>
+
+      {/* OpenAI Costs Section */}
+      <div className="mt-6">
+        <h3 className="text-lg font-semibold text-gray-900 dark:text-zinc-50 mb-4 flex items-center gap-2">
+          Custos OpenAI
+        </h3>
+
+        {costError && (
+          <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
+            {costError}
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
+          <Card className="hover:shadow-lg transition-all duration-200 dark:shadow-zinc-900/20 dark:border-zinc-700 dark:bg-zinc-900/90 dark:text-zinc-50">
+            <CardContent className="flex items-start justify-between p-4 sm:p-6 dark:text-zinc-50">
+              <div className="space-y-1">
+                <p className="text-sm font-medium text-gray-600 dark:text-zinc-50">
+                  Custo Total
+                </p>
+                <div className="text-2xl font-bold text-gray-900 dark:text-zinc-50">
+                  {costLoading ? "..." : `R$ ${costData.totalCost.toFixed(4)}`}
+                </div>
+                <p className="text-xs text-gray-500 dark:text-zinc-400">
+                  Custo total acumulado
+                </p>
+              </div>
+              <div className="p-2">
+                <DollarSignIcon className="h-5 w-5 text-green-600" />
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="hover:shadow-lg transition-all duration-200 dark:shadow-zinc-900/20 dark:border-zinc-700 dark:bg-zinc-900/90 dark:text-zinc-50">
+            <CardContent className="flex items-start justify-between p-4 sm:p-6 dark:text-zinc-50">
+              <div className="space-y-1">
+                <p className="text-sm font-medium text-gray-600 dark:text-zinc-50">
+                  Custo de Input
+                </p>
+                <div className="text-2xl font-bold text-gray-900 dark:text-zinc-50">
+                  {costLoading ? "..." : `R$ ${costData.inputCost.toFixed(4)}`}
+                </div>
+                <p className="text-xs text-gray-500 dark:text-zinc-400">
+                  Tokens de entrada
+                </p>
+              </div>
+              <div className="p-2">
+                <ArrowDownIcon className="h-5 w-5 text-blue-600" />
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="hover:shadow-lg transition-all duration-200 dark:shadow-zinc-900/20 dark:border-zinc-700 dark:bg-zinc-900/90 dark:text-zinc-50">
+            <CardContent className="flex items-start justify-between p-4 sm:p-6 dark:text-zinc-50">
+              <div className="space-y-1">
+                <p className="text-sm font-medium text-gray-600 dark:text-zinc-50">
+                  Custo de Output
+                </p>
+                <div className="text-2xl font-bold text-gray-900 dark:text-zinc-50">
+                  {costLoading ? "..." : `R$ ${costData.outputCost.toFixed(4)}`}
+                </div>
+                <p className="text-xs text-gray-500 dark:text-zinc-400">
+                  Tokens de saída
+                </p>
+              </div>
+              <div className="p-2">
+                <ArrowUpIcon className="h-5 w-5 text-orange-600" />
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
     </DashWrapper>
   );
 }
