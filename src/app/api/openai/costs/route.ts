@@ -32,8 +32,11 @@ interface SimplifiedCostResult {
 }
 
 interface ExchangeRateResponse {
-  conversion_rates: {
+  base: string;
+  date: string;
+  rates: {
     BRL: number;
+    [key: string]: number;
   };
 }
 
@@ -44,7 +47,7 @@ async function getUsdToBrlRate(): Promise<number> {
       "https://api.exchangerate-api.com/v4/latest/USD"
     );
     const data: ExchangeRateResponse = await response.json();
-    return data.conversion_rates.BRL;
+    return data.rates.BRL;
   } catch (error) {
     console.error("Error fetching exchange rate, using default rate:", error);
     // Fallback rate (approximate USD to BRL rate)

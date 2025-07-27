@@ -25,9 +25,17 @@ export async function GET(request: NextRequest) {
 
     // Search for user by partial match on id field (email)
     // Using regex for case-insensitive partial matching
-    const user = await User.findOne({
-      id: { $regex: searchQuery, $options: "i" },
+    // Also try exact match first for better performance
+    let user = await User.findOne({
+      id: { $regex: `^${searchQuery}$`, $options: "i" },
     }).select("-__v");
+    
+    // If no exact match, try partial match
+    if (!user) {
+      user = await User.findOne({
+        id: { $regex: searchQuery, $options: "i" },
+      }).select("-__v");
+    }
 
     if (!user) {
       return NextResponse.json({
@@ -56,7 +64,7 @@ export async function GET(request: NextRequest) {
       (exam) => new Date(exam.createdAt) >= thirtyDaysAgo
     ).length;
 
-    // Create user object with corrected examsThisMonth
+    // Create user object with corrected examsThisMonth and enhanced display info
     const userWithCorrectUsage = {
       ...user.toObject(),
       usage: {
@@ -64,6 +72,9 @@ export async function GET(request: NextRequest) {
         examsThisMonth: examsLast30Days,
         examsThisMonthResetDate: user.usage.examsThisMonthResetDate,
       },
+      // Add user-friendly display fields
+      email: user.id, // Since id is the email
+      displayName: user.id.split('@')[0], // Extract username part for display
     };
 
     return NextResponse.json({
@@ -75,6 +86,12 @@ export async function GET(request: NextRequest) {
         counts: {
           exams: exams.length,
           results: results.length,
+        },
+        // Add search metadata
+        searchMetadata: {
+          query: searchQuery,
+          searchedAt: new Date().toISOString(),
+          isExactMatch: user.id.toLowerCase() === searchQuery.toLowerCase(),
         },
       },
     });

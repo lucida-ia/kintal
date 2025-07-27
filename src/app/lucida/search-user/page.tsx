@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import DashWrapper from "@/components/dashboard/dash-wrapper";
 import Header from "@/components/dashboard/header";
 import { Input } from "@/components/ui/input";
@@ -34,10 +34,16 @@ import {
   ChevronDownIcon,
   ChevronRightIcon,
   DownloadIcon,
+  HistoryIcon,
+  XIcon,
+  TrashIcon,
 } from "lucide-react";
+import { RecentSearchManager, type RecentSearch } from "@/lib/recentSearches";
 
 interface User {
   id: string;
+  email: string;
+  displayName: string;
   subscription: {
     plan: string;
     status: string;
@@ -94,6 +100,11 @@ interface SearchResponse {
       exams: number;
       results: number;
     };
+    searchMetadata: {
+      query: string;
+      searchedAt: string;
+      isExactMatch: boolean;
+    };
   } | null;
   message?: string;
   error?: string;
@@ -105,6 +116,37 @@ export default function SearchUser() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [expandedExams, setExpandedExams] = useState<Set<string>>(new Set());
+  const [recentSearches, setRecentSearches] = useState<RecentSearch[]>([]);
+  const [showRecentSearches, setShowRecentSearches] = useState(false);
+
+  // Load recent searches on component mount
+  useEffect(() => {
+    const loadRecentSearches = () => {
+      try {
+        const searches = RecentSearchManager.getRecentSearches();
+        setRecentSearches(searches);
+      } catch (error) {
+        console.error('Failed to load recent searches:', error);
+      }
+    };
+
+    loadRecentSearches();
+  }, []);
+
+  // Click outside handler to close recent searches dropdown
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as Element;
+      if (!target.closest('.recent-searches-container')) {
+        setShowRecentSearches(false);
+      }
+    };
+
+    if (showRecentSearches) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [showRecentSearches]);
 
   const handleSearch = async () => {
     if (!searchQuery.trim()) {
@@ -128,11 +170,71 @@ export default function SearchUser() {
       }
 
       setSearchResult(data);
+
+      // Add to recent searches if search was successful and returned data
+      if (data.success && data.data) {
+        RecentSearchManager.addRecentSearch(
+          searchQuery.trim(),
+          data.data.user.email
+        );
+        // Refresh recent searches
+        setRecentSearches(RecentSearchManager.getRecentSearches());
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "An error occurred");
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleRecentSearchClick = async (recentSearch: RecentSearch) => {
+    setSearchQuery(recentSearch.query);
+    setShowRecentSearches(false);
+    setError(null);
+    
+    // Perform the search automatically
+    if (!recentSearch.query.trim()) return;
+
+    setIsLoading(true);
+    setSearchResult(null);
+
+    try {
+      const response = await fetch(
+        `/api/lucida/users/search?q=${encodeURIComponent(recentSearch.query.trim())}`
+      );
+
+      const data: SearchResponse = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to search user");
+      }
+
+      setSearchResult(data);
+
+      // Update the recent search timestamp
+      if (data.success && data.data) {
+        RecentSearchManager.addRecentSearch(
+          recentSearch.query.trim(),
+          data.data.user.email
+        );
+        setRecentSearches(RecentSearchManager.getRecentSearches());
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "An error occurred");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleRemoveRecentSearch = (searchId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    RecentSearchManager.removeRecentSearch(searchId);
+    setRecentSearches(RecentSearchManager.getRecentSearches());
+  };
+
+  const handleClearRecentSearches = () => {
+    RecentSearchManager.clearRecentSearches();
+    setRecentSearches([]);
   };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
@@ -300,32 +402,138 @@ export default function SearchUser() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="flex gap-3">
-              <Input
-                placeholder="Buscar por ID"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="flex-1"
-                disabled={isLoading}
-              />
-              <Button
-                onClick={handleSearch}
-                disabled={isLoading || !searchQuery.trim()}
-                className="min-w-[120px] flex items-center gap-2"
-              >
-                {isLoading ? (
-                  <>
-                    <LoaderIcon className="h-4 w-4 animate-spin" />
-                    Buscando...
-                  </>
-                ) : (
-                  <>
-                    <SearchIcon className="h-4 w-4" />
-                    Buscar
-                  </>
-                )}
-              </Button>
+            <div className="space-y-4">
+              <div className="flex gap-3">
+                <div className="flex-1 relative recent-searches-container">
+                  <Input
+                    placeholder="Buscar por Email/ID"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    onKeyPress={handleKeyPress}
+                    onFocus={() => setShowRecentSearches(true)}
+                    className="flex-1"
+                    disabled={isLoading}
+                  />
+                  
+                  {/* Recent Searches Dropdown */}
+                  {showRecentSearches && recentSearches.length > 0 && (
+                    <div className="absolute top-full left-0 right-0 z-10 mt-1 bg-white dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                      <div className="p-3 border-b border-gray-200 dark:border-zinc-700">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <HistoryIcon className="h-4 w-4 text-gray-500" />
+                            <span className="text-sm font-medium text-gray-700 dark:text-zinc-300">
+                              Buscas Recentes
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={handleClearRecentSearches}
+                              className="h-6 w-6 p-0 text-gray-500 hover:text-red-500"
+                            >
+                              <TrashIcon className="h-3 w-3" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => setShowRecentSearches(false)}
+                              className="h-6 w-6 p-0 text-gray-500"
+                            >
+                              <XIcon className="h-3 w-3" />
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="py-1">
+                        {recentSearches.map((search) => (
+                          <div
+                            key={search.id}
+                            className="flex items-center justify-between px-3 py-2 hover:bg-gray-50 dark:hover:bg-zinc-700 cursor-pointer transition-colors"
+                            onClick={() => handleRecentSearchClick(search)}
+                          >
+                            <div className="flex-1 min-w-0">
+                              <div className="text-sm font-medium text-gray-900 dark:text-zinc-100 truncate">
+                                {search.userEmail}
+                              </div>
+                              <div className="text-xs text-gray-500 dark:text-zinc-400">
+                                Pesquisado em: {new Date(search.searchedAt).toLocaleDateString('pt-BR', {
+                                  day: '2-digit',
+                                  month: '2-digit',
+                                  hour: '2-digit',
+                                  minute: '2-digit'
+                                })}
+                              </div>
+                            </div>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={(e) => handleRemoveRecentSearch(search.id, e)}
+                              className="h-6 w-6 p-0 text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+                            >
+                              <XIcon className="h-3 w-3" />
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+                <Button
+                  onClick={handleSearch}
+                  disabled={isLoading || !searchQuery.trim()}
+                  className="min-w-[120px] flex items-center gap-2"
+                >
+                  {isLoading ? (
+                    <>
+                      <LoaderIcon className="h-4 w-4 animate-spin" />
+                      Buscando...
+                    </>
+                  ) : (
+                    <>
+                      <SearchIcon className="h-4 w-4" />
+                      Buscar
+                    </>
+                  )}
+                </Button>
+              </div>
+
+              {/* Recent Searches Quick Access (when not focused) */}
+              {!showRecentSearches && recentSearches.length > 0 && (
+                <div className="flex flex-wrap gap-2">
+                  <span className="text-sm text-gray-500 dark:text-zinc-400 flex items-center gap-1">
+                    <HistoryIcon className="h-3 w-3" />
+                    Recentes:
+                  </span>
+                  {recentSearches.slice(0, 3).map((search) => (
+                    <Button
+                      key={search.id}
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleRecentSearchClick(search)}
+                      className="h-7 px-2 text-xs"
+                    >
+                      {search.userEmail.length > 20 
+                        ? `${search.userEmail.substring(0, 20)}...` 
+                        : search.userEmail
+                      }
+                    </Button>
+                  ))}
+                  {recentSearches.length > 3 && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setShowRecentSearches(true)}
+                      className="h-7 px-2 text-xs text-blue-600 dark:text-blue-400"
+                    >
+                      +{recentSearches.length - 3} mais
+                    </Button>
+                  )}
+                </div>
+              )}
             </div>
+
             {error && (
               <div className="flex items-center gap-2 text-red-500 text-sm mt-3 p-3 bg-red-50 dark:bg-red-900/20 rounded-lg border border-red-200 dark:border-red-800">
                 <AlertCircleIcon className="h-4 w-4" />
@@ -352,11 +560,21 @@ export default function SearchUser() {
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                       <div className="space-y-2">
                         <div className="flex items-center gap-2 text-sm font-medium text-gray-600 dark:text-zinc-400">
-                          <UserIcon className="h-4 w-4" />
-                          ID
+                          <MailIcon className="h-4 w-4" />
+                          Email
                         </div>
                         <p className="text-base font-mono bg-gray-50 dark:bg-zinc-800 px-3 py-2 rounded-md">
-                          {searchResult.data.user.id}
+                          {searchResult.data.user.email}
+                        </p>
+                      </div>
+
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2 text-sm font-medium text-gray-600 dark:text-zinc-400">
+                          <UserIcon className="h-4 w-4" />
+                          Nome de Usuário
+                        </div>
+                        <p className="text-base bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 px-3 py-2 rounded-md font-medium">
+                          {searchResult.data.user.displayName}
                         </p>
                       </div>
 
