@@ -38,6 +38,9 @@ import {
   DollarSignIcon,
   ArrowUpIcon,
   ArrowDownIcon,
+  CrownIcon,
+  StarIcon,
+  ShieldIcon,
 } from "lucide-react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -55,11 +58,20 @@ interface User {
   updatedAt: string;
 }
 
+interface SubscriptionBreakdown {
+  trial: number;
+  "semi-annual": number;
+  annual: number;
+  custom: number;
+}
+
 interface ApiResponse {
   success: boolean;
   data: User[];
   count: number;
   weeklyCount: number;
+  subscriptionBreakdown: SubscriptionBreakdown;
+  weeklySubscriptionBreakdown: SubscriptionBreakdown;
 }
 
 interface QuestionsApiResponse {
@@ -147,6 +159,21 @@ export default function LucidaDashboard() {
   const [weeklyAnswerCount, setWeeklyAnswerCount] = useState<number | string>(
     "..."
   );
+  
+  // Subscription breakdown state
+  const [subscriptionCounts, setSubscriptionCounts] = useState<SubscriptionBreakdown>({
+    trial: 0,
+    "semi-annual": 0,
+    annual: 0,
+    custom: 0,
+  });
+  const [weeklySubscriptionCounts, setWeeklySubscriptionCounts] = useState<SubscriptionBreakdown>({
+    trial: 0,
+    "semi-annual": 0,
+    annual: 0,
+    custom: 0,
+  });
+  
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [dateRange, setDateRange] = useState<DateRange>({
@@ -154,6 +181,7 @@ export default function LucidaDashboard() {
     to: undefined,
   });
   const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
+  const [activeQuickFilter, setActiveQuickFilter] = useState<string | null>(null);
 
   // Chart-related state
   const [chartData, setChartData] = useState<ChartDataPoint[]>([]);
@@ -186,6 +214,44 @@ export default function LucidaDashboard() {
     return params.toString();
   };
 
+  // Quick filter utility functions
+  const getQuickFilterRange = (filterType: string): DateRange => {
+    const now = new Date();
+    const to = new Date(now);
+    
+    switch (filterType) {
+      case "24h":
+        const from24h = new Date(now);
+        from24h.setHours(now.getHours() - 24);
+        return { from: from24h, to };
+      
+      case "7d":
+        const from7d = new Date(now);
+        from7d.setDate(now.getDate() - 7);
+        return { from: from7d, to };
+      
+      case "30d":
+        const from30d = new Date(now);
+        from30d.setDate(now.getDate() - 30);
+        return { from: from30d, to };
+      
+      case "3m":
+        const from3m = new Date(now);
+        from3m.setMonth(now.getMonth() - 3);
+        return { from: from3m, to };
+      
+      default:
+        return { from: undefined, to: undefined };
+    }
+  };
+
+  const handleQuickFilter = (filterType: string) => {
+    const range = getQuickFilterRange(filterType);
+    setDateRange(range);
+    setActiveQuickFilter(filterType);
+    fetchAllData(range);
+  };
+
   const fetchUsers = async (dateRange?: DateRange) => {
     try {
       const queryParams = dateRange ? buildQueryParams(dateRange) : "";
@@ -196,16 +262,22 @@ export default function LucidaDashboard() {
       if (data.success) {
         setUserCount(data.count);
         setWeeklyUserCount(data.weeklyCount);
+        setSubscriptionCounts(data.subscriptionBreakdown);
+        setWeeklySubscriptionCounts(data.weeklySubscriptionBreakdown);
       } else {
         setError("Failed to fetch users");
         setUserCount("Error");
         setWeeklyUserCount("Error");
+        setSubscriptionCounts({ trial: 0, "semi-annual": 0, annual: 0, custom: 0 });
+        setWeeklySubscriptionCounts({ trial: 0, "semi-annual": 0, annual: 0, custom: 0 });
       }
     } catch (err) {
       console.error("Error fetching users:", err);
       setError("Failed to fetch users");
       setUserCount("Error");
       setWeeklyUserCount("Error");
+      setSubscriptionCounts({ trial: 0, "semi-annual": 0, annual: 0, custom: 0 });
+      setWeeklySubscriptionCounts({ trial: 0, "semi-annual": 0, annual: 0, custom: 0 });
     }
   };
 
@@ -392,11 +464,13 @@ export default function LucidaDashboard() {
   }, [dateRange]); // Re-setup interval when dateRange changes
 
   const handleFilter = () => {
+    setActiveQuickFilter(null); // Clear quick filter when using custom date range
     fetchAllData(dateRange);
   };
 
   const handleClearFilter = () => {
     setDateRange({ from: undefined, to: undefined });
+    setActiveQuickFilter(null);
     fetchAllData();
   };
 
@@ -495,6 +569,37 @@ export default function LucidaDashboard() {
     },
   ];
 
+  const subscriptionInfo = [
+    {
+      key: "trialUsers",
+      title: "Usuários em Teste",
+      value: subscriptionCounts.trial,
+      weeklyText: formatWeeklyText(weeklySubscriptionCounts.trial),
+      icon: <ShieldIcon className="h-5 w-5 text-gray-600" />,
+    },
+    {
+      key: "semiAnnualUsers",
+      title: "Usuários Semi-anuais",
+      value: subscriptionCounts["semi-annual"],
+      weeklyText: formatWeeklyText(weeklySubscriptionCounts["semi-annual"]),
+      icon: <StarIcon className="h-5 w-5 text-yellow-600" />,
+    },
+    {
+      key: "annualUsers",
+      title: "Usuários Anuais",
+      value: subscriptionCounts.annual,
+      weeklyText: formatWeeklyText(weeklySubscriptionCounts.annual),
+      icon: <CrownIcon className="h-5 w-5 text-purple-600" />,
+    },
+    {
+      key: "customUsers",
+      title: "Usuários Personalizados",
+      value: subscriptionCounts.custom,
+      weeklyText: formatWeeklyText(weeklySubscriptionCounts.custom),
+      icon: <UserIcon className="h-5 w-5 text-teal-600" />,
+    },
+  ];
+
   return (
     <DashWrapper>
       <Header title="Lucida" description="Tudo sobre a Lucida" />
@@ -506,57 +611,90 @@ export default function LucidaDashboard() {
       )}
 
       {/* Date Filter Section */}
-      <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between mt-4 sm:mt-6 p-4 bg-gray-50 dark:bg-zinc-800/50 rounded-lg border dark:border-zinc-700">
-        <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
-          <Popover open={isDatePickerOpen} onOpenChange={setIsDatePickerOpen}>
-            <PopoverTrigger asChild>
+      <div className="flex flex-col gap-4 mt-4 sm:mt-6 p-4 bg-gray-50 dark:bg-zinc-800/50 rounded-lg border dark:border-zinc-700">
+        {/* Quick Filters Row */}
+        <div className="flex flex-col sm:flex-row gap-3">
+          <span className="text-sm font-medium text-gray-700 dark:text-zinc-300 flex items-center">
+            Filtros Rápidos:
+          </span>
+          <div className="flex flex-wrap gap-2">
+            {[
+              { key: "24h", label: "Últimas 24h" },
+              { key: "7d", label: "Últimos 7 dias" },
+              { key: "30d", label: "Últimos 30 dias" },
+              { key: "3m", label: "Últimos 3 meses" },
+            ].map((filter) => (
               <Button
-                variant="outline"
-                className="w-full sm:w-[300px] justify-start text-left font-normal"
-              >
-                <CalendarIcon className="mr-2 h-4 w-4" />
-                {formatDateRange()}
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent className="w-auto p-0" align="start">
-              <Calendar
-                mode="range"
-                defaultMonth={dateRange.from}
-                selected={{
-                  from: dateRange.from,
-                  to: dateRange.to,
-                }}
-                onSelect={(range) => {
-                  setDateRange({
-                    from: range?.from,
-                    to: range?.to,
-                  });
-                }}
-                numberOfMonths={2}
-                locale={ptBR}
-              />
-            </PopoverContent>
-          </Popover>
-
-          <div className="flex gap-2">
-            <Button
-              onClick={handleFilter}
-              disabled={loading}
-              className="flex items-center gap-2"
-            >
-              <FilterIcon className="h-4 w-4" />
-              {loading ? "Carregando..." : "Filtrar"}
-            </Button>
-
-            {(dateRange.from || dateRange.to) && (
-              <Button
-                variant="outline"
-                onClick={handleClearFilter}
+                key={filter.key}
+                variant={activeQuickFilter === filter.key ? "default" : "outline"}
+                size="sm"
+                onClick={() => handleQuickFilter(filter.key)}
                 disabled={loading}
+                className="text-xs"
               >
-                Limpar Filtro
+                {filter.label}
               </Button>
-            )}
+            ))}
+          </div>
+        </div>
+
+        {/* Custom Date Range Row */}
+        <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
+          <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
+            <span className="text-sm font-medium text-gray-700 dark:text-zinc-300">
+              Período Personalizado:
+            </span>
+            <Popover open={isDatePickerOpen} onOpenChange={setIsDatePickerOpen}>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  className="w-full sm:w-[300px] justify-start text-left font-normal"
+                >
+                  <CalendarIcon className="mr-2 h-4 w-4" />
+                  {formatDateRange()}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0" align="start">
+                <Calendar
+                  mode="range"
+                  defaultMonth={dateRange.from}
+                  selected={{
+                    from: dateRange.from,
+                    to: dateRange.to,
+                  }}
+                  onSelect={(range) => {
+                    setDateRange({
+                      from: range?.from,
+                      to: range?.to,
+                    });
+                    setActiveQuickFilter(null); // Clear quick filter when manually selecting dates
+                  }}
+                  numberOfMonths={2}
+                  locale={ptBR}
+                />
+              </PopoverContent>
+            </Popover>
+
+            <div className="flex gap-2">
+              <Button
+                onClick={handleFilter}
+                disabled={loading}
+                className="flex items-center gap-2"
+              >
+                <FilterIcon className="h-4 w-4" />
+                {loading ? "Carregando..." : "Filtrar"}
+              </Button>
+
+              {(dateRange.from || dateRange.to || activeQuickFilter) && (
+                <Button
+                  variant="outline"
+                  onClick={handleClearFilter}
+                  disabled={loading}
+                >
+                  Limpar Filtro
+                </Button>
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -583,6 +721,37 @@ export default function LucidaDashboard() {
             </CardContent>
           </Card>
         ))}
+      </div>
+
+      {/* Subscription Breakdown Section */}
+      <div className="mt-6">
+        <h3 className="text-lg font-semibold text-gray-900 dark:text-zinc-50 mb-4 flex items-center gap-2">
+          <UserIcon className="h-5 w-5" />
+          Usuários por Tipo de Assinatura
+        </h3>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+          {subscriptionInfo.map((value) => (
+            <Card
+              className="hover:shadow-lg transition-all duration-200 dark:shadow-zinc-900/20 dark:border-zinc-700 dark:bg-zinc-900/90 dark:text-zinc-50"
+              key={value.key}
+            >
+              <CardContent className="flex items-start justify-between p-4 sm:p-6 dark:text-zinc-50">
+                <div className="space-y-1">
+                  <p className="text-sm font-medium text-gray-600 dark:text-zinc-50">
+                    {value.title}
+                  </p>
+                  <div className="text-2xl font-bold text-gray-900 dark:text-zinc-50">
+                    {value.value}
+                  </div>
+                  <p className="text-xs text-gray-500 dark:text-zinc-400">
+                    {value.weeklyText}
+                  </p>
+                </div>
+                <div className="p-2">{value.icon}</div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
       </div>
 
       {/* Chart Section */}

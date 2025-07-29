@@ -46,11 +46,62 @@ export async function GET(request: NextRequest) {
 
     const weeklyUsers = await User.countDocuments(weeklyFilter);
 
+    // Aggregate users by subscription plan
+    const subscriptionCounts = await User.aggregate([
+      { $match: filter },
+      {
+        $group: {
+          _id: "$subscription.plan",
+          count: { $sum: 1 }
+        }
+      }
+    ]);
+
+    // Convert aggregation result to a more user-friendly format
+    const subscriptionBreakdown = {
+      trial: 0,
+      "semi-annual": 0,
+      annual: 0,
+      custom: 0
+    };
+
+    subscriptionCounts.forEach((item) => {
+      if (item._id && subscriptionBreakdown.hasOwnProperty(item._id)) {
+        subscriptionBreakdown[item._id as keyof typeof subscriptionBreakdown] = item.count;
+      }
+    });
+
+    // Calculate weekly subscription counts
+    const weeklySubscriptionCounts = await User.aggregate([
+      { $match: weeklyFilter },
+      {
+        $group: {
+          _id: "$subscription.plan",
+          count: { $sum: 1 }
+        }
+      }
+    ]);
+
+    const weeklySubscriptionBreakdown = {
+      trial: 0,
+      "semi-annual": 0,
+      annual: 0,
+      custom: 0
+    };
+
+    weeklySubscriptionCounts.forEach((item) => {
+      if (item._id && weeklySubscriptionBreakdown.hasOwnProperty(item._id)) {
+        weeklySubscriptionBreakdown[item._id as keyof typeof weeklySubscriptionBreakdown] = item.count;
+      }
+    });
+
     return NextResponse.json({
       success: true,
       data: users,
       count: users.length,
       weeklyCount: weeklyUsers,
+      subscriptionBreakdown,
+      weeklySubscriptionBreakdown,
     });
   } catch (error) {
     console.error("Error fetching users:", error);
