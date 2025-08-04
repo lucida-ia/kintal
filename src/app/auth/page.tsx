@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/card";
 import { KintalLogo } from "@/components/logo";
 
-const CORRECT_PASSWORD = "03152628";
+const CORRECT_PASSWORD = process.env.NEXT_PUBLIC_KINTAL_PASSWORD;
 
 export default function AuthPage() {
   const [password, setPassword] = useState("");
