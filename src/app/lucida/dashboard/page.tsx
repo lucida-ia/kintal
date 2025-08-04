@@ -60,6 +60,7 @@ interface User {
 
 interface SubscriptionBreakdown {
   trial: number;
+  monthly: number;
   "semi-annual": number;
   annual: number;
   custom: number;
@@ -159,21 +160,25 @@ export default function LucidaDashboard() {
   const [weeklyAnswerCount, setWeeklyAnswerCount] = useState<number | string>(
     "..."
   );
-  
+
   // Subscription breakdown state
-  const [subscriptionCounts, setSubscriptionCounts] = useState<SubscriptionBreakdown>({
-    trial: 0,
-    "semi-annual": 0,
-    annual: 0,
-    custom: 0,
-  });
-  const [weeklySubscriptionCounts, setWeeklySubscriptionCounts] = useState<SubscriptionBreakdown>({
-    trial: 0,
-    "semi-annual": 0,
-    annual: 0,
-    custom: 0,
-  });
-  
+  const [subscriptionCounts, setSubscriptionCounts] =
+    useState<SubscriptionBreakdown>({
+      trial: 0,
+      monthly: 0,
+      "semi-annual": 0,
+      annual: 0,
+      custom: 0,
+    });
+  const [weeklySubscriptionCounts, setWeeklySubscriptionCounts] =
+    useState<SubscriptionBreakdown>({
+      trial: 0,
+      monthly: 0,
+      "semi-annual": 0,
+      annual: 0,
+      custom: 0,
+    });
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [dateRange, setDateRange] = useState<DateRange>({
@@ -181,7 +186,9 @@ export default function LucidaDashboard() {
     to: undefined,
   });
   const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
-  const [activeQuickFilter, setActiveQuickFilter] = useState<string | null>(null);
+  const [activeQuickFilter, setActiveQuickFilter] = useState<string | null>(
+    null
+  );
 
   // Chart-related state
   const [chartData, setChartData] = useState<ChartDataPoint[]>([]);
@@ -218,28 +225,28 @@ export default function LucidaDashboard() {
   const getQuickFilterRange = (filterType: string): DateRange => {
     const now = new Date();
     const to = new Date(now);
-    
+
     switch (filterType) {
       case "24h":
         const from24h = new Date(now);
         from24h.setHours(now.getHours() - 24);
         return { from: from24h, to };
-      
+
       case "7d":
         const from7d = new Date(now);
         from7d.setDate(now.getDate() - 7);
         return { from: from7d, to };
-      
+
       case "30d":
         const from30d = new Date(now);
         from30d.setDate(now.getDate() - 30);
         return { from: from30d, to };
-      
+
       case "3m":
         const from3m = new Date(now);
         from3m.setMonth(now.getMonth() - 3);
         return { from: from3m, to };
-      
+
       default:
         return { from: undefined, to: undefined };
     }
@@ -268,16 +275,40 @@ export default function LucidaDashboard() {
         setError("Failed to fetch users");
         setUserCount("Error");
         setWeeklyUserCount("Error");
-        setSubscriptionCounts({ trial: 0, "semi-annual": 0, annual: 0, custom: 0 });
-        setWeeklySubscriptionCounts({ trial: 0, "semi-annual": 0, annual: 0, custom: 0 });
+        setSubscriptionCounts({
+          trial: 0,
+          monthly: 0,
+          "semi-annual": 0,
+          annual: 0,
+          custom: 0,
+        });
+        setWeeklySubscriptionCounts({
+          trial: 0,
+          monthly: 0,
+          "semi-annual": 0,
+          annual: 0,
+          custom: 0,
+        });
       }
     } catch (err) {
       console.error("Error fetching users:", err);
       setError("Failed to fetch users");
       setUserCount("Error");
       setWeeklyUserCount("Error");
-      setSubscriptionCounts({ trial: 0, "semi-annual": 0, annual: 0, custom: 0 });
-      setWeeklySubscriptionCounts({ trial: 0, "semi-annual": 0, annual: 0, custom: 0 });
+      setSubscriptionCounts({
+        trial: 0,
+        monthly: 0,
+        "semi-annual": 0,
+        annual: 0,
+        custom: 0,
+      });
+      setWeeklySubscriptionCounts({
+        trial: 0,
+        monthly: 0,
+        "semi-annual": 0,
+        annual: 0,
+        custom: 0,
+      });
     }
   };
 
@@ -483,8 +514,9 @@ export default function LucidaDashboard() {
 
   const formatWeeklyText = (count: number | string): string => {
     if (count === "..." || count === "Error") return count.toString();
+    if (count === undefined || count === null) return "Nenhum novo essa semana";
     const numCount = Number(count);
-    if (numCount === 0) return "Nenhum novo essa semana";
+    if (isNaN(numCount) || numCount === 0) return "Nenhum novo essa semana";
     if (numCount === 1) return "1 novo essa semana";
     return `${numCount} novos essa semana`;
   };
@@ -578,8 +610,15 @@ export default function LucidaDashboard() {
       icon: <ShieldIcon className="h-5 w-5 text-gray-600" />,
     },
     {
+      key: "monthlyUsers",
+      title: "Usuários Mensais",
+      value: subscriptionCounts.monthly ?? 0,
+      weeklyText: formatWeeklyText(weeklySubscriptionCounts.monthly ?? 0),
+      icon: <ClockIcon className="h-5 w-5 text-blue-600" />,
+    },
+    {
       key: "semiAnnualUsers",
-      title: "Usuários Semi-anuais",
+      title: "Usuários Semestrais",
       value: subscriptionCounts["semi-annual"],
       weeklyText: formatWeeklyText(weeklySubscriptionCounts["semi-annual"]),
       icon: <StarIcon className="h-5 w-5 text-yellow-600" />,
@@ -626,7 +665,9 @@ export default function LucidaDashboard() {
             ].map((filter) => (
               <Button
                 key={filter.key}
-                variant={activeQuickFilter === filter.key ? "default" : "outline"}
+                variant={
+                  activeQuickFilter === filter.key ? "default" : "outline"
+                }
                 size="sm"
                 onClick={() => handleQuickFilter(filter.key)}
                 disabled={loading}
@@ -729,7 +770,7 @@ export default function LucidaDashboard() {
           <UserIcon className="h-5 w-5" />
           Usuários por Tipo de Assinatura
         </h3>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4">
           {subscriptionInfo.map((value) => (
             <Card
               className="hover:shadow-lg transition-all duration-200 dark:shadow-zinc-900/20 dark:border-zinc-700 dark:bg-zinc-900/90 dark:text-zinc-50"
