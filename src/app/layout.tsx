@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import { ThemeProvider } from "../components/theme-provider";
-import Navbar from "../components/dashboard/navbar";
+import AuthWrapper from "@/components/AuthWrapper";
 
 const inter = Inter({
   variable: "--font-inter",
@@ -37,19 +37,7 @@ export default function RootLayout({
           enableSystem
           disableTransitionOnChange={false}
         >
-          <div
-            className="min-h-screen bg-gradient-to-br from-zinc-100 to-zinc-200 dark:from-black dark:to-zinc-900"
-            suppressHydrationWarning
-          >
-            <div className="flex flex-col md:flex-row">
-              <Navbar />
-
-              {/* Main Content */}
-              <main className="flex-1 overflow-y-auto bg-white dark:bg-zinc-900 min-h-screen">
-                {children}
-              </main>
-            </div>
-          </div>
+          <AuthWrapper>{children}</AuthWrapper>
         </ThemeProvider>
       </body>
     </html>

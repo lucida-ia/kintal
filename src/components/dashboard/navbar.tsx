@@ -9,6 +9,7 @@ import {
   XIcon,
   ChevronDownIcon,
   ChevronRightIcon,
+  LogOut,
 } from "lucide-react";
 import { ChartIcon, DashboardIcon, SearchIcon, UserListIcon } from "./icons";
 
@@ -27,6 +28,14 @@ export default function Navbar() {
       ...prev,
       [menuKey]: !prev[menuKey],
     }));
+  };
+
+  const handleLogout = () => {
+    // Clear the auth cookie
+    document.cookie =
+      "kintal-auth=; path=/; expires=Thu, 01 Jan 1970 00:00:01 GMT";
+    // Redirect to auth page
+    window.location.href = "/auth";
   };
 
   const NavContent = () => (
@@ -98,6 +107,17 @@ export default function Navbar() {
               </Link>
             </div>
           )}
+        </div>
+
+        {/* Logout Section */}
+        <div className="border-t border-zinc-200 dark:border-zinc-700 pt-4 mt-4">
+          <button
+            onClick={handleLogout}
+            className="w-full group flex items-center px-3 py-2 text-sm font-medium rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 focus:outline-none focus:ring-2 focus:ring-red-500 dark:focus:ring-red-400 transition-all duration-200"
+          >
+            <LogOut className="mr-3 h-4 w-4" />
+            Sair
+          </button>
         </div>
       </nav>
     </>
