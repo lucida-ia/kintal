@@ -52,22 +52,24 @@ export async function GET(request: NextRequest) {
       {
         $group: {
           _id: "$subscription.plan",
-          count: { $sum: 1 }
-        }
-      }
+          count: { $sum: 1 },
+        },
+      },
     ]);
 
     // Convert aggregation result to a more user-friendly format
     const subscriptionBreakdown = {
       trial: 0,
+      monthly: 0,
       "semi-annual": 0,
       annual: 0,
-      custom: 0
+      custom: 0,
     };
 
     subscriptionCounts.forEach((item) => {
       if (item._id && subscriptionBreakdown.hasOwnProperty(item._id)) {
-        subscriptionBreakdown[item._id as keyof typeof subscriptionBreakdown] = item.count;
+        subscriptionBreakdown[item._id as keyof typeof subscriptionBreakdown] =
+          item.count;
       }
     });
 
@@ -77,21 +79,23 @@ export async function GET(request: NextRequest) {
       {
         $group: {
           _id: "$subscription.plan",
-          count: { $sum: 1 }
-        }
-      }
+          count: { $sum: 1 },
+        },
+      },
     ]);
 
     const weeklySubscriptionBreakdown = {
       trial: 0,
       "semi-annual": 0,
       annual: 0,
-      custom: 0
+      custom: 0,
     };
 
     weeklySubscriptionCounts.forEach((item) => {
       if (item._id && weeklySubscriptionBreakdown.hasOwnProperty(item._id)) {
-        weeklySubscriptionBreakdown[item._id as keyof typeof weeklySubscriptionBreakdown] = item.count;
+        weeklySubscriptionBreakdown[
+          item._id as keyof typeof weeklySubscriptionBreakdown
+        ] = item.count;
       }
     });
 
