@@ -23,17 +23,30 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Search for user by partial match on id field (email)
-    // Using regex for case-insensitive partial matching
-    // Also try exact match first for better performance
+    // Helper to escape regex special chars from user input
+    const escapeRegex = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+    // Build queries that try exact match first (case-insensitive) on id, email, or username
+    const exactRegex = new RegExp(`^${escapeRegex(searchQuery)}$`, "i");
+    const partialRegex = new RegExp(escapeRegex(searchQuery), "i");
+
+    // Try exact match on any of the identifying fields
     let user = await User.findOne({
-      id: { $regex: `^${searchQuery}$`, $options: "i" },
+      $or: [
+        { id: { $regex: exactRegex } },
+        { email: { $regex: exactRegex } },
+        { username: { $regex: exactRegex } },
+      ],
     }).select("-__v");
-    
-    // If no exact match, try partial match
+
+    // If not found, try partial match
     if (!user) {
       user = await User.findOne({
-        id: { $regex: searchQuery, $options: "i" },
+        $or: [
+          { id: { $regex: partialRegex } },
+          { email: { $regex: partialRegex } },
+          { username: { $regex: partialRegex } },
+        ],
       }).select("-__v");
     }
 
@@ -64,17 +77,23 @@ export async function GET(request: NextRequest) {
       (exam) => new Date(exam.createdAt) >= thirtyDaysAgo
     ).length;
 
+    // Resolve proper email/displayName with fallbacks
+    const rawUser = user.toObject();
+    const resolvedEmail = rawUser.email ?? rawUser.id;
+    const resolvedDisplayName = rawUser.username ?? (typeof resolvedEmail === "string" && resolvedEmail.includes("@")
+      ? resolvedEmail.split("@")[0]
+      : rawUser.id);
+
     // Create user object with corrected examsThisMonth and enhanced display info
     const userWithCorrectUsage = {
-      ...user.toObject(),
+      ...rawUser,
       usage: {
-        ...user.usage,
+        ...rawUser.usage,
         examsThisMonth: examsLast30Days,
-        examsThisMonthResetDate: user.usage.examsThisMonthResetDate,
+        examsThisMonthResetDate: rawUser.usage?.examsThisMonthResetDate,
       },
-      // Add user-friendly display fields
-      email: user.id, // Since id is the email
-      displayName: user.id.split('@')[0], // Extract username part for display
+      email: resolvedEmail,
+      displayName: resolvedDisplayName,
     };
 
     return NextResponse.json({
@@ -91,7 +110,11 @@ export async function GET(request: NextRequest) {
         searchMetadata: {
           query: searchQuery,
           searchedAt: new Date().toISOString(),
-          isExactMatch: user.id.toLowerCase() === searchQuery.toLowerCase(),
+          isExactMatch:
+            [rawUser.id, rawUser.email, rawUser.username]
+              .filter(Boolean)
+              .map((v: string) => v.toLowerCase())
+              .includes(searchQuery.toLowerCase()),
         },
       },
     });

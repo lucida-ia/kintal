@@ -6,11 +6,19 @@ const UserSchema = new mongoose.Schema({
     required: true,
     unique: true,
   },
+  username: {
+    type: String,
+    default: null,
+  },
+  email: {
+    type: String,
+    default: null,
+  },
   // Subscription information
   subscription: {
     plan: {
       type: String,
-      enum: ["trial", "semi-annual", "annual", "custom"],
+      enum: ["trial", "monthly", "semi-annual", "annual", "admin", "custom"],
       default: "trial",
     },
     status: {

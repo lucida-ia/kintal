@@ -32,9 +32,16 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // ID/Email filter (case-insensitive partial match)
+    // ID/Email/Username filter (case-insensitive partial match across common identifiers)
     if (idFilter) {
-      filter.id = { $regex: idFilter, $options: "i" };
+      const regex = { $regex: idFilter, $options: "i" } as const;
+      Object.assign(filter, {
+        $or: [
+          { id: regex },
+          { email: regex },
+          { username: regex },
+        ],
+      });
     }
 
     // Get total count for pagination
@@ -47,13 +54,21 @@ export async function GET(request: NextRequest) {
       .skip(skip)
       .limit(limit);
 
-    // Transform users to include display fields
-    const transformedUsers = users.map((user) => ({
-      ...user.toObject(),
-      email: user.id, // Since id is the email
-      displayName: user.id.split("@")[0], // Extract username part for display
-      clerk_id: user.id, // Using id as clerk_id as requested
-    }));
+    // Transform users to include display fields with robust fallbacks
+    const transformedUsers = users.map((user) => {
+      const raw = user.toObject();
+      const resolvedEmail = raw.email ?? raw.id;
+      const resolvedDisplayName = raw.username ?? (typeof resolvedEmail === "string" && resolvedEmail.includes("@")
+        ? resolvedEmail.split("@")[0]
+        : raw.id);
+
+      return {
+        ...raw,
+        email: resolvedEmail,
+        displayName: resolvedDisplayName,
+        clerk_id: raw.id,
+      };
+    });
 
     // Calculate pagination metadata
     const totalPages = Math.ceil(totalUsers / limit);
