@@ -9,14 +9,19 @@ export async function GET(request: NextRequest) {
 
     // Extract query parameters
     const { searchParams } = new URL(request.url);
-    const page = parseInt(searchParams.get("page") || "1");
-    const limit = parseInt(searchParams.get("limit") || "10");
+    const pageParam = searchParams.get("page");
+    const limitParam = searchParams.get("limit");
+    const page = parseInt(pageParam || "1");
+    const limitIsAll = (limitParam || "").toLowerCase() === "all";
+    const parsedLimit = parseInt(limitParam || "10");
+    const limit = limitIsAll ? 0 : isNaN(parsedLimit) || parsedLimit <= 0 ? 10 : parsedLimit;
     const fromDate = searchParams.get("from");
     const toDate = searchParams.get("to");
     const idFilter = searchParams.get("id");
+    const institutionsOnlyParam = searchParams.get("institutionsOnly");
 
     // Calculate pagination
-    const skip = (page - 1) * limit;
+    const skip = limitIsAll ? 0 : (page - 1) * limit;
 
     // Build filter object
     const filter: Record<string, unknown> = {};
@@ -41,6 +46,33 @@ export async function GET(request: NextRequest) {
           { email: regex },
           { username: regex },
         ],
+      });
+    }
+
+    // Exclude common free email providers to approximate "institutional" emails
+    const institutionsOnly = institutionsOnlyParam === "true" || institutionsOnlyParam === "1";
+    if (institutionsOnly) {
+      // Keep the list focused on the most common providers
+      const commonDomains = [
+        "gmail.com",
+        "hotmail.com",
+        "outlook.com",
+        "live.com",
+        "yahoo.com",
+        "icloud.com",
+        "aol.com",
+        "msn.com",
+        "uol.com",
+        "uol.com.br",
+        "bol.com.br",
+        "terra.com.br",
+      ];
+
+      const escaped = commonDomains.map((d) => d.replace(/\./g, "\\."));
+      const domainPattern = `@(?:${escaped.join("|")})$`;
+
+      Object.assign(filter, {
+        email: { $ne: null, $not: { $regex: domainPattern, $options: "i" } },
       });
     }
 
@@ -71,9 +103,9 @@ export async function GET(request: NextRequest) {
     });
 
     // Calculate pagination metadata
-    const totalPages = Math.ceil(totalUsers / limit);
-    const hasNextPage = page < totalPages;
-    const hasPrevPage = page > 1;
+    const totalPages = limitIsAll ? 1 : Math.max(1, Math.ceil(totalUsers / Math.max(1, limit)));
+    const hasNextPage = limitIsAll ? false : page < totalPages;
+    const hasPrevPage = limitIsAll ? false : page > 1;
 
     return NextResponse.json({
       success: true,

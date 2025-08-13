@@ -38,6 +38,8 @@ import {
   XCircleIcon,
   MailIcon,
   UserIcon,
+  CopyIcon,
+  Building2Icon,
 } from "lucide-react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -104,6 +106,8 @@ export default function UserList() {
   const [activeQuickFilter, setActiveQuickFilter] = useState<string | null>(
     null
   );
+  const [institutionsOnly, setInstitutionsOnly] = useState<boolean>(false);
+  const [perPage, setPerPage] = useState<string>("10");
 
   // Quick filter utility functions
   const getQuickFilterRange = (filterType: string): DateRange => {
@@ -150,7 +154,7 @@ export default function UserList() {
       try {
         const params = new URLSearchParams();
         params.append("page", page.toString());
-        params.append("limit", "10");
+        params.append("limit", perPage);
 
         if (idFilter.trim()) {
           params.append("id", idFilter.trim());
@@ -162,6 +166,10 @@ export default function UserList() {
 
         if (dateRange.to) {
           params.append("to", dateRange.to.toISOString());
+        }
+
+        if (institutionsOnly) {
+          params.append("institutionsOnly", "true");
         }
 
         const response = await fetch(
@@ -187,7 +195,7 @@ export default function UserList() {
         setIsLoading(false);
       }
     },
-    [idFilter, dateRange]
+    [idFilter, dateRange, institutionsOnly, perPage]
   );
 
   // Initial fetch
@@ -203,6 +211,8 @@ export default function UserList() {
     setIdFilter("");
     setDateRange({ from: undefined, to: undefined });
     setActiveQuickFilter(null);
+    setInstitutionsOnly(false);
+    setPerPage("10");
     // Fetch will be triggered by useEffect when dependencies change
   };
 
@@ -246,6 +256,16 @@ export default function UserList() {
         return "bg-teal-100 text-teal-800 dark:bg-teal-900/20 dark:text-teal-300";
       default:
         return "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300";
+    }
+  };
+
+  const copyDisplayedEmails = async () => {
+    try {
+      if (!users.length) return;
+      const text = users.map((u) => u.email).join("\n");
+      await navigator.clipboard.writeText(text);
+    } catch (err) {
+      console.error("Failed to copy emails:", err);
     }
   };
 
@@ -403,7 +423,8 @@ export default function UserList() {
                 {(dateRange.from ||
                   dateRange.to ||
                   activeQuickFilter ||
-                  idFilter.trim()) && (
+                  idFilter.trim() ||
+                  institutionsOnly) && (
                   <Button
                     variant="outline"
                     onClick={handleFilterClear}
@@ -412,6 +433,43 @@ export default function UserList() {
                     Limpar Filtros
                   </Button>
                 )}
+              </div>
+            </div>
+            <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
+              <Button
+                variant={institutionsOnly ? "default" : "outline"}
+                size="sm"
+                onClick={() => setInstitutionsOnly((v) => !v)}
+                disabled={isLoading}
+                className="text-xs"
+              >
+                <Building2Icon className="h-4 w-4" />
+                {institutionsOnly ? "Somente Institucionais" : "Incluir Institucionais"}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={copyDisplayedEmails}
+                disabled={isLoading || users.length === 0}
+                className="text-xs"
+              >
+                <CopyIcon className="h-4 w-4" />
+                Copiar Emails
+              </Button>
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-gray-600 dark:text-zinc-400">Por página:</span>
+                <select
+                  value={perPage}
+                  onChange={(e) => setPerPage(e.target.value)}
+                  className="h-9 rounded-md border border-input bg-transparent px-3 text-sm"
+                  disabled={isLoading}
+                >
+                  {(["10", "50", "100", "1000", "all"] as const).map((v) => (
+                    <option key={v} value={v} className="bg-white dark:bg-zinc-900">
+                      {v === "all" ? "Todos" : v}
+                    </option>
+                  ))}
+                </select>
               </div>
             </div>
           </div>
