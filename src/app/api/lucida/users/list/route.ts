@@ -14,11 +14,16 @@ export async function GET(request: NextRequest) {
     const page = parseInt(pageParam || "1");
     const limitIsAll = (limitParam || "").toLowerCase() === "all";
     const parsedLimit = parseInt(limitParam || "10");
-    const limit = limitIsAll ? 0 : isNaN(parsedLimit) || parsedLimit <= 0 ? 10 : parsedLimit;
+    const limit = limitIsAll
+      ? 0
+      : isNaN(parsedLimit) || parsedLimit <= 0
+      ? 10
+      : parsedLimit;
     const fromDate = searchParams.get("from");
     const toDate = searchParams.get("to");
     const idFilter = searchParams.get("id");
     const institutionsOnlyParam = searchParams.get("institutionsOnly");
+    const subscriptionType = searchParams.get("subscriptionType");
 
     // Calculate pagination
     const skip = limitIsAll ? 0 : (page - 1) * limit;
@@ -41,16 +46,18 @@ export async function GET(request: NextRequest) {
     if (idFilter) {
       const regex = { $regex: idFilter, $options: "i" } as const;
       Object.assign(filter, {
-        $or: [
-          { id: regex },
-          { email: regex },
-          { username: regex },
-        ],
+        $or: [{ id: regex }, { email: regex }, { username: regex }],
       });
     }
 
+    // Subscription type filter
+    if (subscriptionType && subscriptionType.trim()) {
+      filter["subscription.plan"] = subscriptionType.trim();
+    }
+
     // Exclude common free email providers to approximate "institutional" emails
-    const institutionsOnly = institutionsOnlyParam === "true" || institutionsOnlyParam === "1";
+    const institutionsOnly =
+      institutionsOnlyParam === "true" || institutionsOnlyParam === "1";
     if (institutionsOnly) {
       // Keep the list focused on the most common providers
       const commonDomains = [
@@ -90,9 +97,11 @@ export async function GET(request: NextRequest) {
     const transformedUsers = users.map((user) => {
       const raw = user.toObject();
       const resolvedEmail = raw.email ?? raw.id;
-      const resolvedDisplayName = raw.username ?? (typeof resolvedEmail === "string" && resolvedEmail.includes("@")
-        ? resolvedEmail.split("@")[0]
-        : raw.id);
+      const resolvedDisplayName =
+        raw.username ??
+        (typeof resolvedEmail === "string" && resolvedEmail.includes("@")
+          ? resolvedEmail.split("@")[0]
+          : raw.id);
 
       return {
         ...raw,
@@ -103,7 +112,9 @@ export async function GET(request: NextRequest) {
     });
 
     // Calculate pagination metadata
-    const totalPages = limitIsAll ? 1 : Math.max(1, Math.ceil(totalUsers / Math.max(1, limit)));
+    const totalPages = limitIsAll
+      ? 1
+      : Math.max(1, Math.ceil(totalUsers / Math.max(1, limit)));
     const hasNextPage = limitIsAll ? false : page < totalPages;
     const hasPrevPage = limitIsAll ? false : page > 1;
 

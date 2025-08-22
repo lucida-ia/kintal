@@ -107,6 +107,7 @@ export default function UserList() {
     null
   );
   const [institutionsOnly, setInstitutionsOnly] = useState<boolean>(false);
+  const [subscriptionType, setSubscriptionType] = useState<string>("");
   const [perPage, setPerPage] = useState<string>("10");
 
   // Quick filter utility functions
@@ -172,6 +173,10 @@ export default function UserList() {
           params.append("institutionsOnly", "true");
         }
 
+        if (subscriptionType.trim()) {
+          params.append("subscriptionType", subscriptionType.trim());
+        }
+
         const response = await fetch(
           `/api/lucida/users/list?${params.toString()}`
         );
@@ -195,7 +200,7 @@ export default function UserList() {
         setIsLoading(false);
       }
     },
-    [idFilter, dateRange, institutionsOnly, perPage]
+    [idFilter, dateRange, institutionsOnly, subscriptionType, perPage]
   );
 
   // Initial fetch
@@ -212,6 +217,7 @@ export default function UserList() {
     setDateRange({ from: undefined, to: undefined });
     setActiveQuickFilter(null);
     setInstitutionsOnly(false);
+    setSubscriptionType("");
     setPerPage("10");
     // Fetch will be triggered by useEffect when dependencies change
   };
@@ -424,7 +430,8 @@ export default function UserList() {
                   dateRange.to ||
                   activeQuickFilter ||
                   idFilter.trim() ||
-                  institutionsOnly) && (
+                  institutionsOnly ||
+                  subscriptionType.trim()) && (
                   <Button
                     variant="outline"
                     onClick={handleFilterClear}
@@ -436,6 +443,42 @@ export default function UserList() {
               </div>
             </div>
             <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-medium text-gray-700 dark:text-zinc-300">
+                  Tipo de Assinatura:
+                </span>
+                <select
+                  value={subscriptionType}
+                  onChange={(e) => setSubscriptionType(e.target.value)}
+                  className="h-9 rounded-md border border-input bg-transparent px-3 text-sm min-w-[150px]"
+                  disabled={isLoading}
+                >
+                  <option value="" className="bg-white dark:bg-zinc-900">
+                    Todos os tipos
+                  </option>
+                  <option value="trial" className="bg-white dark:bg-zinc-900">
+                    Trial
+                  </option>
+                  <option value="monthly" className="bg-white dark:bg-zinc-900">
+                    Mensal
+                  </option>
+                  <option
+                    value="semi-annual"
+                    className="bg-white dark:bg-zinc-900"
+                  >
+                    Semestral
+                  </option>
+                  <option value="annual" className="bg-white dark:bg-zinc-900">
+                    Anual
+                  </option>
+                  <option value="admin" className="bg-white dark:bg-zinc-900">
+                    Admin
+                  </option>
+                  <option value="custom" className="bg-white dark:bg-zinc-900">
+                    Personalizado
+                  </option>
+                </select>
+              </div>
               <Button
                 variant={institutionsOnly ? "default" : "outline"}
                 size="sm"
@@ -444,7 +487,9 @@ export default function UserList() {
                 className="text-xs"
               >
                 <Building2Icon className="h-4 w-4" />
-                {institutionsOnly ? "Somente Institucionais" : "Incluir Institucionais"}
+                {institutionsOnly
+                  ? "Somente Institucionais"
+                  : "Incluir Institucionais"}
               </Button>
               <Button
                 variant="outline"
@@ -457,7 +502,9 @@ export default function UserList() {
                 Copiar Emails
               </Button>
               <div className="flex items-center gap-2">
-                <span className="text-sm text-gray-600 dark:text-zinc-400">Por página:</span>
+                <span className="text-sm text-gray-600 dark:text-zinc-400">
+                  Por página:
+                </span>
                 <select
                   value={perPage}
                   onChange={(e) => setPerPage(e.target.value)}
@@ -465,7 +512,11 @@ export default function UserList() {
                   disabled={isLoading}
                 >
                   {(["10", "50", "100", "1000", "all"] as const).map((v) => (
-                    <option key={v} value={v} className="bg-white dark:bg-zinc-900">
+                    <option
+                      key={v}
+                      value={v}
+                      className="bg-white dark:bg-zinc-900"
+                    >
                       {v === "all" ? "Todos" : v}
                     </option>
                   ))}
