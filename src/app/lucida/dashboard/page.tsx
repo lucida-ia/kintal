@@ -390,10 +390,18 @@ export default function LucidaDashboard() {
 
       if (data.success) {
         // Format dates for display
-        const formattedData = data.data.map((item) => ({
-          ...item,
-          formattedDate: format(new Date(item.date), "dd/MM", { locale: ptBR }),
-        }));
+        const formattedData = data.data.map((item) => {
+          // Parse the date string directly to avoid timezone conversion issues
+          const [year, month, day] = item.date.split("-").map(Number);
+          const dateForFormatting = new Date(year, month - 1, day); // month is 0-indexed
+
+          return {
+            ...item,
+            formattedDate: format(dateForFormatting, "dd/MM", {
+              locale: ptBR,
+            }),
+          };
+        });
         setChartData(formattedData);
       } else {
         setChartError("Failed to fetch chart data");
