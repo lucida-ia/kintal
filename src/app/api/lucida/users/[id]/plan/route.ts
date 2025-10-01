@@ -27,6 +27,7 @@ export async function PATCH(
       "admin",
       "custom",
     ];
+
     if (!plan || !validPlans.includes(plan)) {
       return NextResponse.json(
         {
