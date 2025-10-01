@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import DashWrapper from "@/components/dashboard/dash-wrapper";
 import Header from "@/components/dashboard/header";
 import { Input } from "@/components/ui/input";
@@ -40,6 +41,7 @@ import {
   UserIcon,
   CopyIcon,
   Building2Icon,
+  SearchIcon,
 } from "lucide-react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -91,6 +93,7 @@ interface DateRange {
 }
 
 export default function UserList() {
+  const router = useRouter();
   const [users, setUsers] = useState<User[]>([]);
   const [pagination, setPagination] = useState<PaginationInfo | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -273,6 +276,10 @@ export default function UserList() {
     } catch (err) {
       console.error("Failed to copy emails:", err);
     }
+  };
+
+  const handleSearchUser = (userEmail: string) => {
+    router.push(`/lucida/search-user?q=${encodeURIComponent(userEmail)}`);
   };
 
   const formatDateRange = (): string => {
@@ -636,6 +643,18 @@ export default function UserList() {
                           <p>{formatDate(user.createdAt)}</p>
                         </div>
                       </div>
+
+                      <div className="pt-3 border-t border-gray-200 dark:border-zinc-700">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleSearchUser(user.email)}
+                          className="flex items-center gap-2 w-full"
+                        >
+                          <SearchIcon className="h-4 w-4" />
+                          Buscar Usuário
+                        </Button>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -651,6 +670,7 @@ export default function UserList() {
                         <TableHead>Tipo de Assinatura</TableHead>
                         <TableHead>Status</TableHead>
                         <TableHead>Data de Criação</TableHead>
+                        <TableHead>Ações</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -698,6 +718,18 @@ export default function UserList() {
                             <span className="text-sm text-gray-600 dark:text-zinc-400">
                               {formatDate(user.createdAt)}
                             </span>
+                          </TableCell>
+                          <TableCell>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleSearchUser(user.email)}
+                              className="flex items-center gap-2"
+                              title="Buscar usuário"
+                            >
+                              <SearchIcon className="h-4 w-4" />
+                              Buscar
+                            </Button>
                           </TableCell>
                         </TableRow>
                       ))}

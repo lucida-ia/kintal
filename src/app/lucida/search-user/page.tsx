@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
 import DashWrapper from "@/components/dashboard/dash-wrapper";
 import Header from "@/components/dashboard/header";
 import { Input } from "@/components/ui/input";
@@ -112,6 +113,7 @@ interface SearchResponse {
 }
 
 export default function SearchUser() {
+  const searchParams = useSearchParams();
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResult, setSearchResult] = useState<SearchResponse | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -136,6 +138,50 @@ export default function SearchUser() {
 
     loadRecentSearches();
   }, []);
+
+  // Handle URL search parameter
+  useEffect(() => {
+    const queryParam = searchParams.get("q");
+    if (queryParam) {
+      setSearchQuery(queryParam);
+      // Auto-search when coming from URL parameter
+      const performAutoSearch = async () => {
+        setIsLoading(true);
+        setError(null);
+        setSearchResult(null);
+
+        try {
+          const response = await fetch(
+            `/api/lucida/users/search?q=${encodeURIComponent(queryParam)}`
+          );
+
+          const data: SearchResponse = await response.json();
+
+          if (!response.ok) {
+            throw new Error(data.error || "Failed to search user");
+          }
+
+          setSearchResult(data);
+
+          // Add to recent searches if search was successful and returned data
+          if (data.success && data.data) {
+            RecentSearchManager.addRecentSearch(
+              queryParam,
+              data.data.user.email
+            );
+            // Refresh recent searches
+            setRecentSearches(RecentSearchManager.getRecentSearches());
+          }
+        } catch (err) {
+          setError(err instanceof Error ? err.message : "An error occurred");
+        } finally {
+          setIsLoading(false);
+        }
+      };
+
+      performAutoSearch();
+    }
+  }, [searchParams]);
 
   // Click outside handler to close recent searches dropdown
   useEffect(() => {
