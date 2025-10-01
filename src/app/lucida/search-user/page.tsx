@@ -31,12 +31,13 @@ import {
   AlertCircleIcon,
   CheckCircleIcon,
   XCircleIcon,
-  ChevronDownIcon,
   ChevronRightIcon,
   DownloadIcon,
   HistoryIcon,
   XIcon,
   TrashIcon,
+  EditIcon,
+  SaveIcon,
 } from "lucide-react";
 import { RecentSearchManager, type RecentSearch } from "@/lib/recentSearches";
 
@@ -118,6 +119,9 @@ export default function SearchUser() {
   const [expandedExams, setExpandedExams] = useState<Set<string>>(new Set());
   const [recentSearches, setRecentSearches] = useState<RecentSearch[]>([]);
   const [showRecentSearches, setShowRecentSearches] = useState(false);
+  const [isEditingPlan, setIsEditingPlan] = useState(false);
+  const [selectedPlan, setSelectedPlan] = useState("");
+  const [isUpdatingPlan, setIsUpdatingPlan] = useState(false);
 
   // Load recent searches on component mount
   useEffect(() => {
@@ -126,7 +130,7 @@ export default function SearchUser() {
         const searches = RecentSearchManager.getRecentSearches();
         setRecentSearches(searches);
       } catch (error) {
-        console.error('Failed to load recent searches:', error);
+        console.error("Failed to load recent searches:", error);
       }
     };
 
@@ -137,14 +141,15 @@ export default function SearchUser() {
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       const target = event.target as Element;
-      if (!target.closest('.recent-searches-container')) {
+      if (!target.closest(".recent-searches-container")) {
         setShowRecentSearches(false);
       }
     };
 
     if (showRecentSearches) {
-      document.addEventListener('mousedown', handleClickOutside);
-      return () => document.removeEventListener('mousedown', handleClickOutside);
+      document.addEventListener("mousedown", handleClickOutside);
+      return () =>
+        document.removeEventListener("mousedown", handleClickOutside);
     }
   }, [showRecentSearches]);
 
@@ -191,7 +196,7 @@ export default function SearchUser() {
     setSearchQuery(recentSearch.query);
     setShowRecentSearches(false);
     setError(null);
-    
+
     // Perform the search automatically
     if (!recentSearch.query.trim()) return;
 
@@ -200,7 +205,9 @@ export default function SearchUser() {
 
     try {
       const response = await fetch(
-        `/api/lucida/users/search?q=${encodeURIComponent(recentSearch.query.trim())}`
+        `/api/lucida/users/search?q=${encodeURIComponent(
+          recentSearch.query.trim()
+        )}`
       );
 
       const data: SearchResponse = await response.json();
@@ -235,6 +242,73 @@ export default function SearchUser() {
   const handleClearRecentSearches = () => {
     RecentSearchManager.clearRecentSearches();
     setRecentSearches([]);
+  };
+
+  const handleEditPlan = () => {
+    if (searchResult?.data?.user) {
+      setSelectedPlan(searchResult.data.user.subscription.plan);
+      setIsEditingPlan(true);
+    }
+  };
+
+  const handleCancelEditPlan = () => {
+    setIsEditingPlan(false);
+    setSelectedPlan("");
+  };
+
+  const handleUpdatePlan = async () => {
+    if (!searchResult?.data?.user || !selectedPlan) return;
+
+    setIsUpdatingPlan(true);
+    setError(null);
+
+    try {
+      const response = await fetch(
+        `/api/lucida/users/${searchResult.data.user.id}/plan`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ plan: selectedPlan }),
+        }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to update plan");
+      }
+
+      // Update the local state with the new plan
+      setSearchResult((prev) => {
+        if (!prev?.data) return prev;
+        return {
+          ...prev,
+          data: {
+            ...prev.data,
+            user: {
+              ...prev.data.user,
+              subscription: {
+                ...prev.data.user.subscription,
+                plan: selectedPlan,
+              },
+            },
+          },
+        };
+      });
+
+      setIsEditingPlan(false);
+      setSelectedPlan("");
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "An error occurred while updating the plan"
+      );
+    } finally {
+      setIsUpdatingPlan(false);
+    }
   };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
@@ -414,7 +488,7 @@ export default function SearchUser() {
                     className="flex-1"
                     disabled={isLoading}
                   />
-                  
+
                   {/* Recent Searches Dropdown */}
                   {showRecentSearches && recentSearches.length > 0 && (
                     <div className="absolute top-full left-0 right-0 z-10 mt-1 bg-white dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 rounded-lg shadow-lg max-h-60 overflow-y-auto">
@@ -458,18 +532,24 @@ export default function SearchUser() {
                                 {search.userEmail}
                               </div>
                               <div className="text-xs text-gray-500 dark:text-zinc-400">
-                                Pesquisado em: {new Date(search.searchedAt).toLocaleDateString('pt-BR', {
-                                  day: '2-digit',
-                                  month: '2-digit',
-                                  hour: '2-digit',
-                                  minute: '2-digit'
-                                })}
+                                Pesquisado em:{" "}
+                                {new Date(search.searchedAt).toLocaleDateString(
+                                  "pt-BR",
+                                  {
+                                    day: "2-digit",
+                                    month: "2-digit",
+                                    hour: "2-digit",
+                                    minute: "2-digit",
+                                  }
+                                )}
                               </div>
                             </div>
                             <Button
                               variant="ghost"
                               size="sm"
-                              onClick={(e) => handleRemoveRecentSearch(search.id, e)}
+                              onClick={(e) =>
+                                handleRemoveRecentSearch(search.id, e)
+                              }
                               className="h-6 w-6 p-0 text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
                             >
                               <XIcon className="h-3 w-3" />
@@ -514,10 +594,9 @@ export default function SearchUser() {
                       onClick={() => handleRecentSearchClick(search)}
                       className="h-7 px-2 text-xs"
                     >
-                      {search.userEmail.length > 20 
-                        ? `${search.userEmail.substring(0, 20)}...` 
-                        : search.userEmail
-                      }
+                      {search.userEmail.length > 20
+                        ? `${search.userEmail.substring(0, 20)}...`
+                        : search.userEmail}
                     </Button>
                   ))}
                   {recentSearches.length > 3 && (
@@ -560,6 +639,16 @@ export default function SearchUser() {
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                       <div className="space-y-2">
                         <div className="flex items-center gap-2 text-sm font-medium text-gray-600 dark:text-zinc-400">
+                          <UserIcon className="h-4 w-4" />
+                          ID do Usuário
+                        </div>
+                        <p className="text-base font-mono bg-gray-50 dark:bg-zinc-800 px-3 py-2 rounded-md">
+                          {searchResult.data.user.id}
+                        </p>
+                      </div>
+
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2 text-sm font-medium text-gray-600 dark:text-zinc-400">
                           <MailIcon className="h-4 w-4" />
                           Email
                         </div>
@@ -579,13 +668,66 @@ export default function SearchUser() {
                       </div>
 
                       <div className="space-y-2">
-                        <div className="flex items-center gap-2 text-sm font-medium text-gray-600 dark:text-zinc-400">
-                          <CreditCardIcon className="h-4 w-4" />
-                          Plano
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2 text-sm font-medium text-gray-600 dark:text-zinc-400">
+                            <CreditCardIcon className="h-4 w-4" />
+                            Plano
+                          </div>
+                          {!isEditingPlan && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={handleEditPlan}
+                              className="h-6 w-6 p-0 text-gray-500 hover:text-blue-600 dark:text-zinc-400 dark:hover:text-blue-400"
+                            >
+                              <EditIcon className="h-3 w-3" />
+                            </Button>
+                          )}
                         </div>
-                        <p className="text-base capitalize px-3 py-2 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 rounded-md font-medium">
-                          {searchResult.data.user.subscription.plan}
-                        </p>
+                        {isEditingPlan ? (
+                          <div className="flex items-center gap-2">
+                            <select
+                              value={selectedPlan}
+                              onChange={(e) => setSelectedPlan(e.target.value)}
+                              disabled={isUpdatingPlan}
+                              className="flex-1 h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              <option value="">Selecione um plano</option>
+                              <option value="trial">Trial</option>
+                              <option value="monthly">Mensal</option>
+                              <option value="semi-annual">Semestral</option>
+                              <option value="annual">Anual</option>
+                              <option value="admin">Admin</option>
+                              <option value="custom">Custom</option>
+                            </select>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={handleUpdatePlan}
+                              disabled={isUpdatingPlan || !selectedPlan}
+                              className="flex items-center gap-1"
+                            >
+                              {isUpdatingPlan ? (
+                                <LoaderIcon className="h-3 w-3 animate-spin" />
+                              ) : (
+                                <SaveIcon className="h-3 w-3" />
+                              )}
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={handleCancelEditPlan}
+                              disabled={isUpdatingPlan}
+                              className="h-8 w-8 p-0"
+                            >
+                              <XIcon className="h-3 w-3" />
+                            </Button>
+                          </div>
+                        ) : (
+                          <p className="text-base capitalize px-3 py-2 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 rounded-md font-medium">
+                            {searchResult.data.user.subscription.plan}
+                          </p>
+                        )}
                       </div>
 
                       <div className="space-y-2">
