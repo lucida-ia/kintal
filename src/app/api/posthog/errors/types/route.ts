@@ -60,7 +60,18 @@ export async function GET(request: NextRequest) {
       }
     > = {};
 
-    events.forEach((event: any) => {
+    // Define types for better type safety
+    interface PostHogEvent {
+      timestamp: string;
+      properties?: {
+        $exception_types?: string[];
+        $exception_type?: string;
+        $exception_message?: string;
+        $exception_severity?: string;
+      };
+    }
+
+    events.forEach((event: PostHogEvent) => {
       const properties = event.properties || {};
       const errorTypes = Array.isArray(properties.$exception_types)
         ? properties.$exception_types
@@ -123,7 +134,6 @@ export async function GET(request: NextRequest) {
     const errorTypesList = Object.entries(errorTypeCounts)
       .map(([type, count]) => ({
         type,
-        count,
         ...errorTypeDetails[type],
       }))
       .sort((a, b) => b.count - a.count);
