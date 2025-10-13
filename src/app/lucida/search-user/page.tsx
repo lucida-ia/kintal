@@ -16,6 +16,20 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   SearchIcon,
   UserIcon,
   CreditCardIcon,
@@ -37,8 +51,10 @@ import {
   HistoryIcon,
   XIcon,
   TrashIcon,
+  Trash2Icon,
   EditIcon,
   SaveIcon,
+  FilterIcon,
 } from "lucide-react";
 import { RecentSearchManager, type RecentSearch } from "@/lib/recentSearches";
 
@@ -124,6 +140,20 @@ export default function SearchUser() {
   const [isEditingPlan, setIsEditingPlan] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState("");
   const [isUpdatingPlan, setIsUpdatingPlan] = useState(false);
+  const [dateRange, setDateRange] = useState<{
+    from: Date | undefined;
+    to: Date | undefined;
+  }>({
+    from: undefined,
+    to: undefined,
+  });
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [resultToDelete, setResultToDelete] = useState<{
+    id: string;
+    email: string;
+    examTitle: string;
+  } | null>(null);
+  const [isDeletingResult, setIsDeletingResult] = useState(false);
 
   // Load recent searches on component mount
   useEffect(() => {
@@ -425,6 +455,97 @@ export default function SearchUser() {
     );
   };
 
+  const filterResultsByDateRange = (results: Result[]) => {
+    if (!dateRange.from && !dateRange.to) {
+      return results;
+    }
+
+    return results.filter((result) => {
+      const resultDate = new Date(result.createdAt);
+      
+      if (dateRange.from && dateRange.to) {
+        const fromDate = new Date(dateRange.from);
+        fromDate.setHours(0, 0, 0, 0);
+        const toDate = new Date(dateRange.to);
+        toDate.setHours(23, 59, 59, 999);
+        return resultDate >= fromDate && resultDate <= toDate;
+      } else if (dateRange.from) {
+        const fromDate = new Date(dateRange.from);
+        fromDate.setHours(0, 0, 0, 0);
+        return resultDate >= fromDate;
+      } else if (dateRange.to) {
+        const toDate = new Date(dateRange.to);
+        toDate.setHours(23, 59, 59, 999);
+        return resultDate <= toDate;
+      }
+      
+      return true;
+    });
+  };
+
+  const clearDateRange = () => {
+    setDateRange({ from: undefined, to: undefined });
+  };
+
+  const handleDeleteResult = (resultId: string, email: string, examTitle: string) => {
+    setResultToDelete({ id: resultId, email, examTitle });
+    setDeleteDialogOpen(true);
+  };
+
+  const confirmDeleteResult = async () => {
+    if (!resultToDelete) return;
+
+    setIsDeletingResult(true);
+    setError(null);
+
+    try {
+      const response = await fetch(
+        `/api/lucida/answers?id=${encodeURIComponent(resultToDelete.id)}`,
+        {
+          method: "DELETE",
+        }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to delete result");
+      }
+
+      // Update the local state to remove the deleted result
+      setSearchResult((prev) => {
+        if (!prev?.data) return prev;
+        return {
+          ...prev,
+          data: {
+            ...prev.data,
+            results: prev.data.results.filter((r) => r._id !== resultToDelete.id),
+            counts: {
+              ...prev.data.counts,
+              results: prev.data.counts.results - 1,
+            },
+          },
+        };
+      });
+
+      setDeleteDialogOpen(false);
+      setResultToDelete(null);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "An error occurred while deleting the result"
+      );
+    } finally {
+      setIsDeletingResult(false);
+    }
+  };
+
+  const cancelDeleteResult = () => {
+    setDeleteDialogOpen(false);
+    setResultToDelete(null);
+  };
+
   const convertToCSV = (data: Result[]) => {
     if (!data || data.length === 0) return "";
 
@@ -482,11 +603,26 @@ export default function SearchUser() {
       return;
     }
 
-    const csvContent = convertToCSV(searchResult.data.results);
-    const filename = `resultados_usuario_${searchResult.data.user.id}_${
-      new Date().toISOString().split("T")[0]
-    }.csv`;
-    downloadCSV(csvContent, filename);
+    const filteredResults = filterResultsByDateRange(searchResult.data.results);
+    
+    if (filteredResults.length === 0) {
+      setError("Nenhum resultado encontrado no período selecionado");
+      return;
+    }
+
+    // Yield a frame to ensure any open popovers unmount
+    requestAnimationFrame(() => {
+      if (!searchResult?.data) return;
+      
+      const csvContent = convertToCSV(filteredResults);
+      const dateRangeStr = dateRange.from || dateRange.to 
+        ? `_${dateRange.from ? new Date(dateRange.from).toISOString().split("T")[0] : "inicio"}_a_${dateRange.to ? new Date(dateRange.to).toISOString().split("T")[0] : "fim"}`
+        : "";
+      const filename = `resultados_usuario_${searchResult.data.user.id}${dateRangeStr}_${
+        new Date().toISOString().split("T")[0]
+      }.csv`;
+      downloadCSV(csvContent, filename);
+    });
   };
 
   const exportExamResults = (examId: string, examTitle: string) => {
@@ -497,12 +633,25 @@ export default function SearchUser() {
       return;
     }
 
-    const csvContent = convertToCSV(examResults);
-    const sanitizedTitle = examTitle.replace(/[^a-zA-Z0-9]/g, "_");
-    const filename = `resultados_${sanitizedTitle}_${
-      new Date().toISOString().split("T")[0]
-    }.csv`;
-    downloadCSV(csvContent, filename);
+    const filteredResults = filterResultsByDateRange(examResults);
+    
+    if (filteredResults.length === 0) {
+      setError("Nenhum resultado encontrado no período selecionado");
+      return;
+    }
+
+    // Yield a frame to ensure any open popovers unmount
+    requestAnimationFrame(() => {
+      const csvContent = convertToCSV(filteredResults);
+      const sanitizedTitle = examTitle.replace(/[^a-zA-Z0-9]/g, "_");
+      const dateRangeStr = dateRange.from || dateRange.to 
+        ? `_${dateRange.from ? new Date(dateRange.from).toISOString().split("T")[0] : "inicio"}_a_${dateRange.to ? new Date(dateRange.to).toISOString().split("T")[0] : "fim"}`
+        : "";
+      const filename = `resultados_${sanitizedTitle}${dateRangeStr}_${
+        new Date().toISOString().split("T")[0]
+      }.csv`;
+      downloadCSV(csvContent, filename);
+    });
   };
 
   return (
@@ -869,26 +1018,122 @@ export default function SearchUser() {
                 {searchResult.data.counts.results > 0 && (
                   <Card className="hover:shadow-lg transition-all duration-200 dark:shadow-zinc-900/20 dark:border-zinc-700 dark:bg-zinc-900/90">
                     <CardContent className="p-6">
-                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                        <div>
-                          <h3 className="text-lg font-medium text-gray-900 dark:text-zinc-50 mb-1">
-                            Exportar Dados
-                          </h3>
-                          <p className="text-sm text-gray-500 dark:text-zinc-400">
-                            Baixe todos os resultados deste usuário em formato
-                            CSV
-                          </p>
+                      <div className="space-y-4">
+                        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+                          <div>
+                            <h3 className="text-lg font-medium text-gray-900 dark:text-zinc-50 mb-1">
+                              Exportar Dados
+                            </h3>
+                            <p className="text-sm text-gray-500 dark:text-zinc-400">
+                              Baixe todos os resultados deste usuário em formato
+                              CSV
+                            </p>
+                          </div>
+                          <Button
+                            onClick={exportAllResults}
+                            className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white w-full sm:w-auto"
+                          >
+                            <DownloadIcon className="h-4 w-4" />
+                            <span className="sm:hidden">Exportar Todos</span>
+                            <span className="hidden sm:inline">
+                              Exportar Todos os Resultados
+                            </span>
+                          </Button>
                         </div>
-                        <Button
-                          onClick={exportAllResults}
-                          className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white w-full sm:w-auto"
-                        >
-                          <DownloadIcon className="h-4 w-4" />
-                          <span className="sm:hidden">Exportar Todos</span>
-                          <span className="hidden sm:inline">
-                            Exportar Todos os Resultados
-                          </span>
-                        </Button>
+
+                        {/* Date Range Filter */}
+                        <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center border-t pt-4">
+                          <div className="flex items-center gap-2">
+                            <FilterIcon className="h-4 w-4 text-gray-600 dark:text-zinc-400" />
+                            <span className="text-sm font-medium text-gray-700 dark:text-zinc-300">
+                              Filtrar por período:
+                            </span>
+                          </div>
+                          
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Popover>
+                            <PopoverTrigger asChild>
+                              <Button
+                                variant="outline"
+                                className="w-full sm:w-auto justify-start text-left font-normal"
+                              >
+                                <CalendarIcon className="mr-2 h-4 w-4" />
+                                {dateRange.from ? (
+                                  dateRange.to ? (
+                                    <>
+                                      {new Date(dateRange.from).toLocaleDateString("pt-BR", {
+                                        day: "2-digit",
+                                        month: "short",
+                                      })}{" "}
+                                      -{" "}
+                                      {new Date(dateRange.to).toLocaleDateString("pt-BR", {
+                                        day: "2-digit",
+                                        month: "short",
+                                        year: "numeric",
+                                      })}
+                                    </>
+                                  ) : (
+                                    <>A partir de {new Date(dateRange.from).toLocaleDateString("pt-BR", {
+                                      day: "2-digit",
+                                      month: "short",
+                                      year: "numeric",
+                                    })}</>
+                                  )
+                                ) : dateRange.to ? (
+                                  <>Até {new Date(dateRange.to).toLocaleDateString("pt-BR", {
+                                    day: "2-digit",
+                                    month: "short",
+                                    year: "numeric",
+                                  })}</>
+                                ) : (
+                                  <span className="text-gray-500">Selecionar período</span>
+                                )}
+                              </Button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-auto p-0" align="start">
+                              <div className="p-3 space-y-2">
+                                <div className="text-sm font-medium text-gray-700 dark:text-zinc-300">
+                                  Selecione o período
+                                </div>
+                                <Calendar
+                                  mode="range"
+                                  selected={{
+                                    from: dateRange.from,
+                                    to: dateRange.to,
+                                  }}
+                                  onSelect={(range: any) => {
+                                    setDateRange({
+                                      from: range?.from,
+                                      to: range?.to,
+                                    });
+                                  }}
+                                  numberOfMonths={2}
+                                  className="rounded-md border"
+                                />
+                              </div>
+                            </PopoverContent>
+                          </Popover>
+                            
+                            {(dateRange.from || dateRange.to) && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={clearDateRange}
+                                className="text-gray-500 hover:text-red-600"
+                              >
+                                <XIcon className="h-4 w-4 mr-1" />
+                                Limpar filtro
+                              </Button>
+                            )}
+
+                            {(dateRange.from || dateRange.to) && (
+                              <div className="text-xs text-gray-500 dark:text-zinc-400">
+                                {filterResultsByDateRange(searchResult.data.results).length} de{" "}
+                                {searchResult.data.results.length} resultados no período
+                              </div>
+                            )}
+                          </div>
+                        </div>
                       </div>
                     </CardContent>
                   </Card>
@@ -1081,6 +1326,101 @@ export default function SearchUser() {
                                         </Button>
                                       </div>
 
+                                      {/* Date Range Filter for Individual Exam */}
+                                      <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center border-t border-b py-3 mb-3 bg-gray-50 dark:bg-zinc-800/30 px-3 rounded-md">
+                                        <div className="flex items-center gap-2">
+                                          <FilterIcon className="h-3 w-3 text-gray-600 dark:text-zinc-400" />
+                                          <span className="text-xs font-medium text-gray-700 dark:text-zinc-300">
+                                            Filtrar por período:
+                                          </span>
+                                        </div>
+                                        
+                                        <div className="flex flex-wrap items-center gap-2">
+                                          <Popover>
+                                            <PopoverTrigger asChild>
+                                              <Button
+                                                variant="outline"
+                                                size="sm"
+                                                className="h-8 w-full sm:w-auto justify-start text-left font-normal text-xs"
+                                              >
+                                                <CalendarIcon className="mr-2 h-3 w-3" />
+                                                {dateRange.from ? (
+                                                  dateRange.to ? (
+                                                    <>
+                                                      {new Date(dateRange.from).toLocaleDateString("pt-BR", {
+                                                        day: "2-digit",
+                                                        month: "short",
+                                                      })}{" "}
+                                                      -{" "}
+                                                      {new Date(dateRange.to).toLocaleDateString("pt-BR", {
+                                                        day: "2-digit",
+                                                        month: "short",
+                                                        year: "numeric",
+                                                      })}
+                                                    </>
+                                                  ) : (
+                                                    <>A partir de {new Date(dateRange.from).toLocaleDateString("pt-BR", {
+                                                      day: "2-digit",
+                                                      month: "short",
+                                                      year: "numeric",
+                                                    })}</>
+                                                  )
+                                                ) : dateRange.to ? (
+                                                  <>Até {new Date(dateRange.to).toLocaleDateString("pt-BR", {
+                                                    day: "2-digit",
+                                                    month: "short",
+                                                    year: "numeric",
+                                                  })}</>
+                                                ) : (
+                                                  <span className="text-gray-500">Selecionar período</span>
+                                                )}
+                                              </Button>
+                                            </PopoverTrigger>
+                                            <PopoverContent className="w-auto p-0" align="start">
+                                              <div className="p-3 space-y-2">
+                                                <div className="text-sm font-medium text-gray-700 dark:text-zinc-300">
+                                                  Selecione o período
+                                                </div>
+                                                <Calendar
+                                                  mode="range"
+                                                  selected={{
+                                                    from: dateRange.from,
+                                                    to: dateRange.to,
+                                                  }}
+                                                  onSelect={(range: any) => {
+                                                    setDateRange({
+                                                      from: range?.from,
+                                                      to: range?.to,
+                                                    });
+                                                  }}
+                                                  numberOfMonths={2}
+                                                  className="rounded-md border"
+                                                />
+                                              </div>
+                                            </PopoverContent>
+                                          </Popover>
+                                          
+                                          {(dateRange.from || dateRange.to) && (
+                                            <Button
+                                              variant="ghost"
+                                              size="sm"
+                                              onClick={clearDateRange}
+                                              className="h-7 text-xs text-gray-500 hover:text-red-600"
+                                            >
+                                              <XIcon className="h-3 w-3 mr-1" />
+                                              Limpar
+                                            </Button>
+                                          )}
+
+                                          {(dateRange.from || dateRange.to) && (
+                                            <div className="text-xs text-gray-500 dark:text-zinc-400">
+                                              {filterResultsByDateRange(examResults).length} de{" "}
+                                              {examResults.length} resultados
+                                            </div>
+                                          )}
+                                        </div>
+                                      </div>
+
                                       {/* Mobile Results Layout */}
                                       <div className="block md:hidden space-y-3">
                                         {examResults.map((result) => (
@@ -1088,49 +1428,65 @@ export default function SearchUser() {
                                             key={result._id}
                                             className="bg-gray-50 dark:bg-zinc-800 rounded-lg p-3"
                                           >
-                                            <div className="space-y-2">
-                                              <div>
-                                                <span className="text-xs text-gray-500 dark:text-zinc-400">
-                                                  Email:
-                                                </span>
-                                                <p className="font-mono text-sm break-all">
-                                                  {result.email}
-                                                </p>
-                                              </div>
-                                              <div className="grid grid-cols-2 gap-3 text-sm">
+                                            <div className="flex justify-between items-start gap-2">
+                                              <div className="flex-1 space-y-2">
                                                 <div>
                                                   <span className="text-xs text-gray-500 dark:text-zinc-400">
-                                                    Pontuação:
+                                                    Email:
                                                   </span>
-                                                  <p className="font-medium">
-                                                    {result.score}/
-                                                    {result.examQuestionCount}
+                                                  <p className="font-mono text-sm break-all">
+                                                    {result.email}
                                                   </p>
+                                                </div>
+                                                <div className="grid grid-cols-2 gap-3 text-sm">
+                                                  <div>
+                                                    <span className="text-xs text-gray-500 dark:text-zinc-400">
+                                                      Pontuação:
+                                                    </span>
+                                                    <p className="font-medium">
+                                                      {result.score}/
+                                                      {result.examQuestionCount}
+                                                    </p>
+                                                  </div>
+                                                  <div>
+                                                    <span className="text-xs text-gray-500 dark:text-zinc-400">
+                                                      Percentual:
+                                                    </span>
+                                                    <p
+                                                      className={`font-bold ${getPercentageColor(
+                                                        result.percentage
+                                                      )}`}
+                                                    >
+                                                      {(
+                                                        result.percentage * 100
+                                                      ).toFixed(1)}
+                                                      %
+                                                    </p>
+                                                  </div>
                                                 </div>
                                                 <div>
                                                   <span className="text-xs text-gray-500 dark:text-zinc-400">
-                                                    Percentual:
+                                                    Data:
                                                   </span>
-                                                  <p
-                                                    className={`font-bold ${getPercentageColor(
-                                                      result.percentage
-                                                    )}`}
-                                                  >
-                                                    {(
-                                                      result.percentage * 100
-                                                    ).toFixed(1)}
-                                                    %
+                                                  <p className="text-sm">
+                                                    {formatDate(result.createdAt)}
                                                   </p>
                                                 </div>
                                               </div>
-                                              <div>
-                                                <span className="text-xs text-gray-500 dark:text-zinc-400">
-                                                  Data:
-                                                </span>
-                                                <p className="text-sm">
-                                                  {formatDate(result.createdAt)}
-                                                </p>
-                                              </div>
+                                              <Button
+                                                variant="ghost"
+                                                size="sm"
+                                                onClick={() =>
+                                                  handleDeleteResult(
+                                                    result._id,
+                                                    result.email,
+                                                    result.examTitle
+                                                  )
+                                                }
+                                                className="h-8 w-8 p-0 text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20"
+                                              >
+                                                <Trash2Icon className="h-4 w-4" />
+                                              </Button>
                                             </div>
                                           </div>
                                         ))}
@@ -1149,6 +1505,9 @@ export default function SearchUser() {
                                                 Percentual
                                               </TableHead>
                                               <TableHead>Data</TableHead>
+                                              <TableHead className="text-center w-[80px]">
+                                                Ações
+                                              </TableHead>
                                             </TableRow>
                                           </TableHeader>
                                           <TableBody>
@@ -1178,6 +1537,22 @@ export default function SearchUser() {
                                                 </TableCell>
                                                 <TableCell className="text-sm text-gray-600 dark:text-zinc-400">
                                                   {formatDate(result.createdAt)}
+                                                </TableCell>
+                                                <TableCell className="text-center">
+                                                  <Button
+                                                    variant="ghost"
+                                                    size="sm"
+                                                    onClick={() =>
+                                                      handleDeleteResult(
+                                                        result._id,
+                                                        result.email,
+                                                        result.examTitle
+                                                      )
+                                                    }
+                                                    className="h-8 w-8 p-0 text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20"
+                                                  >
+                                                    <Trash2Icon className="h-4 w-4" />
+                                                  </Button>
                                                 </TableCell>
                                               </TableRow>
                                             ))}
@@ -1225,6 +1600,73 @@ export default function SearchUser() {
           </>
         )}
       </div>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Confirmar Exclusão</DialogTitle>
+            <DialogDescription>
+              Tem certeza que deseja excluir este resultado?
+            </DialogDescription>
+          </DialogHeader>
+          
+          {resultToDelete && (
+            <div className="py-4 space-y-2">
+              <div className="text-sm">
+                <span className="font-medium text-gray-700 dark:text-zinc-300">
+                  Email:
+                </span>{" "}
+                <span className="font-mono text-gray-600 dark:text-zinc-400">
+                  {resultToDelete.email}
+                </span>
+              </div>
+              <div className="text-sm">
+                <span className="font-medium text-gray-700 dark:text-zinc-300">
+                  Exame:
+                </span>{" "}
+                <span className="text-gray-600 dark:text-zinc-400">
+                  {resultToDelete.examTitle}
+                </span>
+              </div>
+              <div className="mt-4 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-md">
+                <p className="text-sm text-red-800 dark:text-red-300">
+                  ⚠️ Esta ação não pode ser desfeita. O resultado será
+                  permanentemente removido do sistema.
+                </p>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={cancelDeleteResult}
+              disabled={isDeletingResult}
+            >
+              Cancelar
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={confirmDeleteResult}
+              disabled={isDeletingResult}
+              className="bg-red-600 hover:bg-red-700"
+            >
+              {isDeletingResult ? (
+                <>
+                  <LoaderIcon className="h-4 w-4 mr-2 animate-spin" />
+                  Excluindo...
+                </>
+              ) : (
+                <>
+                  <Trash2Icon className="h-4 w-4 mr-2" />
+                  Excluir Resultado
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </DashWrapper>
   );
 }

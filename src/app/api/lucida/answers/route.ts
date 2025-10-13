@@ -67,3 +67,54 @@ export async function GET(request: NextRequest) {
     );
   }
 }
+
+export async function DELETE(request: NextRequest) {
+  try {
+    // Connect to MongoDB
+    await connectToDB();
+
+    // Extract result ID from query parameters
+    const { searchParams } = new URL(request.url);
+    const resultId = searchParams.get("id");
+
+    if (!resultId) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Result ID is required",
+        },
+        { status: 400 }
+      );
+    }
+
+    // Find and delete the result
+    const deletedResult = await Result.findByIdAndDelete(resultId);
+
+    if (!deletedResult) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Result not found",
+        },
+        { status: 404 }
+      );
+    }
+
+    return NextResponse.json({
+      success: true,
+      message: "Result deleted successfully",
+      data: deletedResult,
+    });
+  } catch (error) {
+    console.error("Error deleting result:", error);
+
+    return NextResponse.json(
+      {
+        success: false,
+        error: "Failed to delete result",
+        message: error instanceof Error ? error.message : "Unknown error",
+      },
+      { status: 500 }
+    );
+  }
+}
