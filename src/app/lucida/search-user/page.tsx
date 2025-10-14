@@ -1101,7 +1101,7 @@ export default function SearchUser() {
                                     from: dateRange.from,
                                     to: dateRange.to,
                                   }}
-                                  onSelect={(range: any) => {
+                                  onSelect={(range) => {
                                     setDateRange({
                                       from: range?.from,
                                       to: range?.to,
@@ -1387,7 +1387,7 @@ export default function SearchUser() {
                                                     from: dateRange.from,
                                                     to: dateRange.to,
                                                   }}
-                                                  onSelect={(range: any) => {
+                                                  onSelect={(range) => {
                                                     setDateRange({
                                                       from: range?.from,
                                                       to: range?.to,
