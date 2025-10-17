@@ -24,7 +24,8 @@ export async function GET(request: NextRequest) {
     }
 
     // Helper to escape regex special chars from user input
-    const escapeRegex = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const escapeRegex = (value: string) =>
+      value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
     // Build queries that try exact match first (case-insensitive) on id, email, or username
     const exactRegex = new RegExp(`^${escapeRegex(searchQuery)}$`, "i");
@@ -80,17 +81,27 @@ export async function GET(request: NextRequest) {
     // Resolve proper email/displayName with fallbacks
     const rawUser = user.toObject();
     const resolvedEmail = rawUser.email ?? rawUser.id;
-    const resolvedDisplayName = rawUser.username ?? (typeof resolvedEmail === "string" && resolvedEmail.includes("@")
-      ? resolvedEmail.split("@")[0]
-      : rawUser.id);
+    const resolvedDisplayName =
+      rawUser.username ??
+      (typeof resolvedEmail === "string" && resolvedEmail.includes("@")
+        ? resolvedEmail.split("@")[0]
+        : rawUser.id);
 
-    // Create user object with corrected examsThisMonth and enhanced display info
+    // Use stored examsThisPeriod if it exists and is different from calculated value
+    // This allows manual updates to override the calculated value
+    const storedExamsThisPeriod = rawUser.usage?.examsThisPeriod;
+    const finalExamsThisPeriod =
+      storedExamsThisPeriod !== undefined
+        ? storedExamsThisPeriod
+        : examsLast30Days;
+
+    // Create user object with corrected examsThisPeriod and enhanced display info
     const userWithCorrectUsage = {
       ...rawUser,
       usage: {
         ...rawUser.usage,
-        examsThisMonth: examsLast30Days,
-        examsThisMonthResetDate: rawUser.usage?.examsThisMonthResetDate,
+        examsThisPeriod: finalExamsThisPeriod,
+        examsThisPeriodResetDate: rawUser.usage?.examsThisPeriodResetDate,
       },
       email: resolvedEmail,
       displayName: resolvedDisplayName,
@@ -110,11 +121,10 @@ export async function GET(request: NextRequest) {
         searchMetadata: {
           query: searchQuery,
           searchedAt: new Date().toISOString(),
-          isExactMatch:
-            [rawUser.id, rawUser.email, rawUser.username]
-              .filter(Boolean)
-              .map((v: string) => v.toLowerCase())
-              .includes(searchQuery.toLowerCase()),
+          isExactMatch: [rawUser.id, rawUser.email, rawUser.username]
+            .filter(Boolean)
+            .map((v: string) => v.toLowerCase())
+            .includes(searchQuery.toLowerCase()),
         },
       },
     });

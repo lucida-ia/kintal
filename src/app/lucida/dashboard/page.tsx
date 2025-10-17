@@ -52,7 +52,7 @@ interface User {
     status: string;
   };
   usage: {
-    examsThisMonth: number;
+    examsThisPeriod: number;
   };
   createdAt: string;
   updatedAt: string;

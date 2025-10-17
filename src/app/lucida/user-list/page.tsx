@@ -63,8 +63,8 @@ interface User {
     trialEnd?: string;
   };
   usage: {
-    examsThisMonth: number;
-    examsThisMonthResetDate: string;
+    examsThisPeriod: number;
+    examsThisPeriodResetDate: string;
   };
   createdAt: string;
   updatedAt: string;

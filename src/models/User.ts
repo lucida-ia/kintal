@@ -53,11 +53,11 @@ const UserSchema = new mongoose.Schema({
   },
   // Usage tracking
   usage: {
-    examsThisMonth: {
+    examsThisPeriod: {
       type: Number,
       default: 0,
     },
-    examsThisMonthResetDate: {
+    examsThisPeriodResetDate: {
       type: Date,
       default: () => new Date(),
     },

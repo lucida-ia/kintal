@@ -37,8 +37,6 @@ import {
   TargetIcon,
   CalendarIcon,
   ClockIcon,
-  TrendingUpIcon,
-  MailIcon,
   ActivityIcon,
   FileTextIcon,
   AwardIcon,
@@ -73,8 +71,8 @@ interface User {
     trialEnd?: string;
   };
   usage: {
-    examsThisMonth: number;
-    examsThisMonthResetDate: string;
+    examsThisPeriod: number;
+    examsThisPeriodResetDate: string;
   };
   createdAt: string;
   updatedAt: string;
@@ -140,6 +138,9 @@ export default function SearchUser() {
   const [isEditingPlan, setIsEditingPlan] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState("");
   const [isUpdatingPlan, setIsUpdatingPlan] = useState(false);
+  const [isEditingUsage, setIsEditingUsage] = useState(false);
+  const [selectedUsage, setSelectedUsage] = useState("");
+  const [isUpdatingUsage, setIsUpdatingUsage] = useState(false);
   const [dateRange, setDateRange] = useState<{
     from: Date | undefined;
     to: Date | undefined;
@@ -332,6 +333,18 @@ export default function SearchUser() {
     setSelectedPlan("");
   };
 
+  const handleEditUsage = () => {
+    if (searchResult?.data?.user) {
+      setSelectedUsage(searchResult.data.user.usage.examsThisPeriod.toString());
+      setIsEditingUsage(true);
+    }
+  };
+
+  const handleCancelEditUsage = () => {
+    setIsEditingUsage(false);
+    setSelectedUsage("");
+  };
+
   const handleUpdatePlan = async () => {
     if (!searchResult?.data?.user || !selectedPlan) return;
 
@@ -384,6 +397,62 @@ export default function SearchUser() {
       );
     } finally {
       setIsUpdatingPlan(false);
+    }
+  };
+
+  const handleUpdateUsage = async () => {
+    if (!searchResult?.data?.user || !selectedUsage) return;
+
+    setIsUpdatingUsage(true);
+    setError(null);
+
+    try {
+      const response = await fetch(
+        `/api/lucida/users/${searchResult.data.user.id}/usage`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ examsThisPeriod: parseInt(selectedUsage) }),
+        }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to update usage");
+      }
+
+      // Update the local state with the new usage
+      setSearchResult((prev) => {
+        if (!prev?.data) return prev;
+        const newState = {
+          ...prev,
+          data: {
+            ...prev.data,
+            user: {
+              ...prev.data.user,
+              usage: {
+                ...prev.data.user.usage,
+                examsThisPeriod: parseInt(selectedUsage),
+              },
+            },
+          },
+        };
+        return newState;
+      });
+
+      setIsEditingUsage(false);
+      setSelectedUsage("");
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "An error occurred while updating the usage"
+      );
+    } finally {
+      setIsUpdatingUsage(false);
     }
   };
 
@@ -462,7 +531,7 @@ export default function SearchUser() {
 
     return results.filter((result) => {
       const resultDate = new Date(result.createdAt);
-      
+
       if (dateRange.from && dateRange.to) {
         const fromDate = new Date(dateRange.from);
         fromDate.setHours(0, 0, 0, 0);
@@ -478,7 +547,7 @@ export default function SearchUser() {
         toDate.setHours(23, 59, 59, 999);
         return resultDate <= toDate;
       }
-      
+
       return true;
     });
   };
@@ -487,7 +556,11 @@ export default function SearchUser() {
     setDateRange({ from: undefined, to: undefined });
   };
 
-  const handleDeleteResult = (resultId: string, email: string, examTitle: string) => {
+  const handleDeleteResult = (
+    resultId: string,
+    email: string,
+    examTitle: string
+  ) => {
     setResultToDelete({ id: resultId, email, examTitle });
     setDeleteDialogOpen(true);
   };
@@ -519,7 +592,9 @@ export default function SearchUser() {
           ...prev,
           data: {
             ...prev.data,
-            results: prev.data.results.filter((r) => r._id !== resultToDelete.id),
+            results: prev.data.results.filter(
+              (r) => r._id !== resultToDelete.id
+            ),
             counts: {
               ...prev.data.counts,
               results: prev.data.counts.results - 1,
@@ -604,7 +679,7 @@ export default function SearchUser() {
     }
 
     const filteredResults = filterResultsByDateRange(searchResult.data.results);
-    
+
     if (filteredResults.length === 0) {
       setError("Nenhum resultado encontrado no período selecionado");
       return;
@@ -613,14 +688,23 @@ export default function SearchUser() {
     // Yield a frame to ensure any open popovers unmount
     requestAnimationFrame(() => {
       if (!searchResult?.data) return;
-      
+
       const csvContent = convertToCSV(filteredResults);
-      const dateRangeStr = dateRange.from || dateRange.to 
-        ? `_${dateRange.from ? new Date(dateRange.from).toISOString().split("T")[0] : "inicio"}_a_${dateRange.to ? new Date(dateRange.to).toISOString().split("T")[0] : "fim"}`
-        : "";
-      const filename = `resultados_usuario_${searchResult.data.user.id}${dateRangeStr}_${
-        new Date().toISOString().split("T")[0]
-      }.csv`;
+      const dateRangeStr =
+        dateRange.from || dateRange.to
+          ? `_${
+              dateRange.from
+                ? new Date(dateRange.from).toISOString().split("T")[0]
+                : "inicio"
+            }_a_${
+              dateRange.to
+                ? new Date(dateRange.to).toISOString().split("T")[0]
+                : "fim"
+            }`
+          : "";
+      const filename = `resultados_usuario_${
+        searchResult.data.user.id
+      }${dateRangeStr}_${new Date().toISOString().split("T")[0]}.csv`;
       downloadCSV(csvContent, filename);
     });
   };
@@ -634,7 +718,7 @@ export default function SearchUser() {
     }
 
     const filteredResults = filterResultsByDateRange(examResults);
-    
+
     if (filteredResults.length === 0) {
       setError("Nenhum resultado encontrado no período selecionado");
       return;
@@ -644,9 +728,18 @@ export default function SearchUser() {
     requestAnimationFrame(() => {
       const csvContent = convertToCSV(filteredResults);
       const sanitizedTitle = examTitle.replace(/[^a-zA-Z0-9]/g, "_");
-      const dateRangeStr = dateRange.from || dateRange.to 
-        ? `_${dateRange.from ? new Date(dateRange.from).toISOString().split("T")[0] : "inicio"}_a_${dateRange.to ? new Date(dateRange.to).toISOString().split("T")[0] : "fim"}`
-        : "";
+      const dateRangeStr =
+        dateRange.from || dateRange.to
+          ? `_${
+              dateRange.from
+                ? new Date(dateRange.from).toISOString().split("T")[0]
+                : "inicio"
+            }_a_${
+              dateRange.to
+                ? new Date(dateRange.to).toISOString().split("T")[0]
+                : "fim"
+            }`
+          : "";
       const filename = `resultados_${sanitizedTitle}${dateRangeStr}_${
         new Date().toISOString().split("T")[0]
       }.csv`;
@@ -826,148 +919,367 @@ export default function SearchUser() {
                 <Card className="hover:shadow-lg transition-all duration-200 dark:shadow-zinc-900/20 dark:border-zinc-700 dark:bg-zinc-900/90 py-8">
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2 dark:text-zinc-50">
-                      <UserIcon className="h-5 w-5" />
                       Informações do Usuário
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                      <div className="space-y-2">
-                        <div className="flex items-center gap-2 text-sm font-medium text-gray-600 dark:text-zinc-400">
-                          <UserIcon className="h-4 w-4" />
-                          ID do Usuário
-                        </div>
-                        <p className="text-base font-mono bg-gray-50 dark:bg-zinc-800 px-3 py-2 rounded-md">
-                          {searchResult.data.user.id}
-                        </p>
-                      </div>
-
-                      <div className="space-y-2">
-                        <div className="flex items-center gap-2 text-sm font-medium text-gray-600 dark:text-zinc-400">
-                          <MailIcon className="h-4 w-4" />
-                          Email
-                        </div>
-                        <p className="text-base font-mono bg-gray-50 dark:bg-zinc-800 px-3 py-2 rounded-md">
-                          {searchResult.data.user.email}
-                        </p>
-                      </div>
-
-                      <div className="space-y-2">
-                        <div className="flex items-center gap-2 text-sm font-medium text-gray-600 dark:text-zinc-400">
-                          <UserIcon className="h-4 w-4" />
-                          Nome de Usuário
-                        </div>
-                        <p className="text-base bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 px-3 py-2 rounded-md font-medium">
-                          {searchResult.data.user.displayName}
-                        </p>
-                      </div>
-
-                      <div className="space-y-2">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2 text-sm font-medium text-gray-600 dark:text-zinc-400">
-                            <CreditCardIcon className="h-4 w-4" />
-                            Plano
+                    <div className="space-y-8">
+                      {/* Basic User Information */}
+                      <div>
+                        <h3 className="text-lg font-semibold text-gray-900 dark:text-zinc-50 mb-4 flex items-center gap-2">
+                          <UserIcon className="h-5 w-5" />
+                          Informações Básicas
+                        </h3>
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                          <div className="space-y-2">
+                            <div className="flex items-center gap-2 text-sm font-medium text-gray-600 dark:text-zinc-400">
+                              ID do Usuário
+                            </div>
+                            <p className="text-base font-mono bg-gray-50 dark:bg-zinc-800 px-3 py-2 rounded-md">
+                              {searchResult.data.user.id}
+                            </p>
                           </div>
-                          {!isEditingPlan && (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={handleEditPlan}
-                              className="h-6 w-6 p-0 text-gray-500 hover:text-blue-600 dark:text-zinc-400 dark:hover:text-blue-400"
-                            >
-                              <EditIcon className="h-3 w-3" />
-                            </Button>
-                          )}
+
+                          <div className="space-y-2">
+                            <div className="flex items-center gap-2 text-sm font-medium text-gray-600 dark:text-zinc-400">
+                              Email
+                            </div>
+                            <p className="text-base font-mono bg-gray-50 dark:bg-zinc-800 px-3 py-2 rounded-md">
+                              {searchResult.data.user.email}
+                            </p>
+                          </div>
+
+                          <div className="space-y-2">
+                            <div className="flex items-center gap-2 text-sm font-medium text-gray-600 dark:text-zinc-400">
+                              Nome de Usuário
+                            </div>
+                            <p className="text-base bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 px-3 py-2 rounded-md font-medium">
+                              {searchResult.data.user.displayName}
+                            </p>
+                          </div>
                         </div>
-                        {isEditingPlan ? (
-                          <div className="flex items-center gap-2">
-                            <select
-                              value={selectedPlan}
-                              onChange={(e) => setSelectedPlan(e.target.value)}
-                              disabled={isUpdatingPlan}
-                              className="flex-1 h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                            >
-                              <option value="">Selecione um plano</option>
-                              <option value="trial">Trial</option>
-                              <option value="monthly">Mensal</option>
-                              <option value="semi-annual">Semestral</option>
-                              <option value="annual">Anual</option>
-                              <option value="admin">Admin</option>
-                              <option value="custom">Custom</option>
-                            </select>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={handleUpdatePlan}
-                              disabled={isUpdatingPlan || !selectedPlan}
-                              className="flex items-center gap-1"
-                            >
-                              {isUpdatingPlan ? (
-                                <LoaderIcon className="h-3 w-3 animate-spin" />
-                              ) : (
-                                <SaveIcon className="h-3 w-3" />
+                      </div>
+
+                      {/* Subscription Information */}
+                      <div>
+                        <h3 className="text-lg font-semibold text-gray-900 dark:text-zinc-50 mb-4 flex items-center gap-2">
+                          <CreditCardIcon className="h-5 w-5" />
+                          Informações da Assinatura
+                        </h3>
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2 text-sm font-medium text-gray-600 dark:text-zinc-400">
+                                Plano
+                              </div>
+                              {!isEditingPlan && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={handleEditPlan}
+                                  className="h-6 w-6 p-0 text-gray-500 hover:text-blue-600 dark:text-zinc-400 dark:hover:text-blue-400"
+                                >
+                                  <EditIcon className="h-3 w-3" />
+                                </Button>
                               )}
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={handleCancelEditPlan}
-                              disabled={isUpdatingPlan}
-                              className="h-8 w-8 p-0"
-                            >
-                              <XIcon className="h-3 w-3" />
-                            </Button>
+                            </div>
+                            {isEditingPlan ? (
+                              <div className="flex items-center gap-2">
+                                <select
+                                  value={selectedPlan}
+                                  onChange={(e) =>
+                                    setSelectedPlan(e.target.value)
+                                  }
+                                  disabled={isUpdatingPlan}
+                                  className="flex-1 h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                                >
+                                  <option value="">Selecione um plano</option>
+                                  <option value="trial">Trial</option>
+                                  <option value="monthly">Mensal</option>
+                                  <option value="semi-annual">Semestral</option>
+                                  <option value="annual">Anual</option>
+                                  <option value="admin">Admin</option>
+                                  <option value="custom">Custom</option>
+                                </select>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={handleUpdatePlan}
+                                  disabled={isUpdatingPlan || !selectedPlan}
+                                  className="flex items-center gap-1"
+                                >
+                                  {isUpdatingPlan ? (
+                                    <LoaderIcon className="h-3 w-3 animate-spin" />
+                                  ) : (
+                                    <SaveIcon className="h-3 w-3" />
+                                  )}
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={handleCancelEditPlan}
+                                  disabled={isUpdatingPlan}
+                                  className="h-8 w-8 p-0"
+                                >
+                                  <XIcon className="h-3 w-3" />
+                                </Button>
+                              </div>
+                            ) : (
+                              <p className="text-base capitalize px-3 py-2 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 rounded-md font-medium">
+                                {searchResult.data.user.subscription.plan}
+                              </p>
+                            )}
                           </div>
-                        ) : (
-                          <p className="text-base capitalize px-3 py-2 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 rounded-md font-medium">
-                            {searchResult.data.user.subscription.plan}
-                          </p>
-                        )}
+
+                          <div className="space-y-2">
+                            <div className="flex items-center gap-2 text-sm font-medium text-gray-600 dark:text-zinc-400">
+                              Status da Assinatura
+                            </div>
+                            <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-gray-50 dark:bg-zinc-800">
+                              {getStatusIcon(
+                                searchResult.data.user.subscription.status
+                              )}
+                              <span className="capitalize font-medium">
+                                {searchResult.data.user.subscription.status}
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="space-y-2">
+                            <div className="flex items-center gap-2 text-sm font-medium text-gray-600 dark:text-zinc-400">
+                              Cancelar no Fim do Período
+                            </div>
+                            <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-gray-50 dark:bg-zinc-800">
+                              {searchResult.data.user.subscription
+                                .cancelAtPeriodEnd ? (
+                                <>
+                                  <span className="text-red-600 dark:text-red-400 font-medium">
+                                    Sim
+                                  </span>
+                                </>
+                              ) : (
+                                <>
+                                  <span className="text-green-600 dark:text-green-400 font-medium">
+                                    Não
+                                  </span>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                        </div>
                       </div>
 
-                      <div className="space-y-2">
-                        <div className="flex items-center gap-2 text-sm font-medium text-gray-600 dark:text-zinc-400">
-                          <ActivityIcon className="h-4 w-4" />
-                          Status da Assinatura
+                      {/* Stripe Information */}
+                      {(searchResult.data.user.subscription.stripeCustomerId ||
+                        searchResult.data.user.subscription
+                          .stripeSubscriptionId) && (
+                        <div>
+                          <h3 className="text-lg font-semibold text-gray-900 dark:text-zinc-50 mb-4 flex items-center gap-2">
+                            <CreditCardIcon className="h-5 w-5" />
+                            Informações do Stripe
+                          </h3>
+                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-4">
+                            {searchResult.data.user.subscription
+                              .stripeCustomerId && (
+                              <div className="space-y-2">
+                                <div className="flex items-center gap-2 text-sm font-medium text-gray-600 dark:text-zinc-400">
+                                  Stripe Customer ID
+                                </div>
+                                <p className="text-sm font-mono bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300 px-3 py-2 rounded-md">
+                                  {
+                                    searchResult.data.user.subscription
+                                      .stripeCustomerId
+                                  }
+                                </p>
+                              </div>
+                            )}
+
+                            {searchResult.data.user.subscription
+                              .stripeSubscriptionId && (
+                              <div className="space-y-2">
+                                <div className="flex items-center gap-2 text-sm font-medium text-gray-600 dark:text-zinc-400">
+                                  Stripe Subscription ID
+                                </div>
+                                <p className="text-sm font-mono bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300 px-3 py-2 rounded-md">
+                                  {
+                                    searchResult.data.user.subscription
+                                      .stripeSubscriptionId
+                                  }
+                                </p>
+                              </div>
+                            )}
+                          </div>
                         </div>
-                        <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-gray-50 dark:bg-zinc-800">
-                          {getStatusIcon(
-                            searchResult.data.user.subscription.status
-                          )}
-                          <span className="capitalize font-medium">
-                            {searchResult.data.user.subscription.status}
-                          </span>
+                      )}
+
+                      {/* Billing Period Information */}
+                      {(searchResult.data.user.subscription
+                        .currentPeriodStart ||
+                        searchResult.data.user.subscription.currentPeriodEnd ||
+                        searchResult.data.user.subscription.trialEnd) && (
+                        <div>
+                          <h3 className="text-lg font-semibold text-gray-900 dark:text-zinc-50 mb-4 flex items-center gap-2">
+                            <CalendarIcon className="h-5 w-5" />
+                            Períodos de Cobrança
+                          </h3>
+                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-4">
+                            {searchResult.data.user.subscription
+                              .currentPeriodStart && (
+                              <div className="space-y-2">
+                                <div className="flex items-center gap-2 text-sm font-medium text-gray-600 dark:text-zinc-400">
+                                  Início do Período
+                                </div>
+                                <p className="text-sm text-gray-600 dark:text-zinc-400 px-3 py-2 bg-gray-50 dark:bg-zinc-800 rounded-md">
+                                  {formatDate(
+                                    searchResult.data.user.subscription
+                                      .currentPeriodStart
+                                  )}
+                                </p>
+                              </div>
+                            )}
+
+                            {searchResult.data.user.subscription
+                              .currentPeriodEnd && (
+                              <div className="space-y-2">
+                                <div className="flex items-center gap-2 text-sm font-medium text-gray-600 dark:text-zinc-400">
+                                  Fim do Período
+                                </div>
+                                <p className="text-sm text-gray-600 dark:text-zinc-400 px-3 py-2 bg-gray-50 dark:bg-zinc-800 rounded-md">
+                                  {formatDate(
+                                    searchResult.data.user.subscription
+                                      .currentPeriodEnd
+                                  )}
+                                </p>
+                              </div>
+                            )}
+
+                            {searchResult.data.user.subscription.trialEnd && (
+                              <div className="space-y-2">
+                                <div className="flex items-center gap-2 text-sm font-medium text-gray-600 dark:text-zinc-400">
+                                  Fim do Trial
+                                </div>
+                                <p className="text-sm text-orange-600 dark:text-orange-400 px-3 py-2 bg-orange-50 dark:bg-orange-900/20 rounded-md font-medium">
+                                  {formatDate(
+                                    searchResult.data.user.subscription.trialEnd
+                                  )}
+                                </p>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Usage Information */}
+                      <div>
+                        <h3 className="text-lg font-semibold text-gray-900 dark:text-zinc-50 mb-4 flex items-center gap-2">
+                          <ActivityIcon className="h-5 w-5" />
+                          Uso da Plataforma
+                        </h3>
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-1 gap-4">
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2 text-sm font-medium text-gray-600 dark:text-zinc-400">
+                                Uso Mensal de Exames
+                              </div>
+                              {!isEditingUsage && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={handleEditUsage}
+                                  className="h-6 w-6 p-0 text-gray-500 hover:text-green-600 dark:text-zinc-400 dark:hover:text-green-400"
+                                >
+                                  <EditIcon className="h-3 w-3" />
+                                </Button>
+                              )}
+                            </div>
+                            {isEditingUsage ? (
+                              <div className="flex items-center gap-2">
+                                <input
+                                  type="number"
+                                  value={selectedUsage}
+                                  onChange={(e) =>
+                                    setSelectedUsage(e.target.value)
+                                  }
+                                  disabled={isUpdatingUsage}
+                                  min="0"
+                                  className="flex-1 h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                                />
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={handleUpdateUsage}
+                                  disabled={isUpdatingUsage || !selectedUsage}
+                                  className="flex items-center gap-1"
+                                >
+                                  {isUpdatingUsage ? (
+                                    <LoaderIcon className="h-3 w-3 animate-spin" />
+                                  ) : (
+                                    <SaveIcon className="h-3 w-3" />
+                                  )}
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={handleCancelEditUsage}
+                                  disabled={isUpdatingUsage}
+                                  className="h-8 w-8 p-0"
+                                >
+                                  <XIcon className="h-3 w-3" />
+                                </Button>
+                              </div>
+                            ) : (
+                              <div className="px-3 py-2 bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-900/20 dark:to-emerald-900/20 rounded-md border border-green-200 dark:border-green-800">
+                                <div className="flex items-center justify-between">
+                                  <span className="text-2xl font-bold text-green-600 dark:text-green-400">
+                                    {
+                                      searchResult.data.user.usage
+                                        .examsThisPeriod
+                                    }
+                                  </span>
+                                  <div className="text-right">
+                                    <div className="text-xs text-green-600 dark:text-green-400 font-medium">
+                                      Este período
+                                    </div>
+                                    <div className="text-xs text-gray-500 dark:text-zinc-500">
+                                      Reset:{" "}
+                                      {formatDate(
+                                        searchResult.data.user.usage
+                                          .examsThisPeriodResetDate
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+                          </div>
                         </div>
                       </div>
 
-                      <div className="space-y-2">
-                        <div className="flex items-center gap-2 text-sm font-medium text-gray-600 dark:text-zinc-400">
-                          <TrendingUpIcon className="h-4 w-4" />
-                          Exames nos Últimos 30 Dias
-                        </div>
-                        <p className="text-base font-bold text-green-600 dark:text-green-400 px-3 py-2 bg-green-50 dark:bg-green-900/20 rounded-md">
-                          {searchResult.data.user.usage.examsThisMonth}
-                        </p>
-                      </div>
+                      {/* Account Information */}
+                      <div>
+                        <h3 className="text-lg font-semibold text-gray-900 dark:text-zinc-50 mb-4 flex items-center gap-2">
+                          <ClockIcon className="h-5 w-5" />
+                          Informações da Conta
+                        </h3>
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-4">
+                          <div className="space-y-2">
+                            <div className="flex items-center gap-2 text-sm font-medium text-gray-600 dark:text-zinc-400">
+                              Cadastrado em
+                            </div>
+                            <p className="text-sm text-gray-600 dark:text-zinc-400 px-3 py-2 bg-gray-50 dark:bg-zinc-800 rounded-md">
+                              {formatDate(searchResult.data.user.createdAt)}
+                            </p>
+                          </div>
 
-                      <div className="space-y-2">
-                        <div className="flex items-center gap-2 text-sm font-medium text-gray-600 dark:text-zinc-400">
-                          <CalendarIcon className="h-4 w-4" />
-                          Cadastrado em
+                          <div className="space-y-2">
+                            <div className="flex items-center gap-2 text-sm font-medium text-gray-600 dark:text-zinc-400">
+                              Última Atualização
+                            </div>
+                            <p className="text-sm text-gray-600 dark:text-zinc-400 px-3 py-2 bg-gray-50 dark:bg-zinc-800 rounded-md">
+                              {formatDate(searchResult.data.user.updatedAt)}
+                            </p>
+                          </div>
                         </div>
-                        <p className="text-sm text-gray-600 dark:text-zinc-400 px-3 py-2 bg-gray-50 dark:bg-zinc-800 rounded-md">
-                          {formatDate(searchResult.data.user.createdAt)}
-                        </p>
-                      </div>
-
-                      <div className="space-y-2">
-                        <div className="flex items-center gap-2 text-sm font-medium text-gray-600 dark:text-zinc-400">
-                          <ClockIcon className="h-4 w-4" />
-                          Última Atualização
-                        </div>
-                        <p className="text-sm text-gray-600 dark:text-zinc-400 px-3 py-2 bg-gray-50 dark:bg-zinc-800 rounded-md">
-                          {formatDate(searchResult.data.user.updatedAt)}
-                        </p>
                       </div>
                     </div>
                   </CardContent>
@@ -1049,71 +1361,90 @@ export default function SearchUser() {
                               Filtrar por período:
                             </span>
                           </div>
-                          
-                        <div className="flex flex-wrap items-center gap-2">
-                          <Popover>
-                            <PopoverTrigger asChild>
-                              <Button
-                                variant="outline"
-                                className="w-full sm:w-auto justify-start text-left font-normal"
-                              >
-                                <CalendarIcon className="mr-2 h-4 w-4" />
-                                {dateRange.from ? (
-                                  dateRange.to ? (
+
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Popover>
+                              <PopoverTrigger asChild>
+                                <Button
+                                  variant="outline"
+                                  className="w-full sm:w-auto justify-start text-left font-normal"
+                                >
+                                  <CalendarIcon className="mr-2 h-4 w-4" />
+                                  {dateRange.from ? (
+                                    dateRange.to ? (
+                                      <>
+                                        {new Date(
+                                          dateRange.from
+                                        ).toLocaleDateString("pt-BR", {
+                                          day: "2-digit",
+                                          month: "short",
+                                        })}{" "}
+                                        -{" "}
+                                        {new Date(
+                                          dateRange.to
+                                        ).toLocaleDateString("pt-BR", {
+                                          day: "2-digit",
+                                          month: "short",
+                                          year: "numeric",
+                                        })}
+                                      </>
+                                    ) : (
+                                      <>
+                                        A partir de{" "}
+                                        {new Date(
+                                          dateRange.from
+                                        ).toLocaleDateString("pt-BR", {
+                                          day: "2-digit",
+                                          month: "short",
+                                          year: "numeric",
+                                        })}
+                                      </>
+                                    )
+                                  ) : dateRange.to ? (
                                     <>
-                                      {new Date(dateRange.from).toLocaleDateString("pt-BR", {
-                                        day: "2-digit",
-                                        month: "short",
-                                      })}{" "}
-                                      -{" "}
-                                      {new Date(dateRange.to).toLocaleDateString("pt-BR", {
+                                      Até{" "}
+                                      {new Date(
+                                        dateRange.to
+                                      ).toLocaleDateString("pt-BR", {
                                         day: "2-digit",
                                         month: "short",
                                         year: "numeric",
                                       })}
                                     </>
                                   ) : (
-                                    <>A partir de {new Date(dateRange.from).toLocaleDateString("pt-BR", {
-                                      day: "2-digit",
-                                      month: "short",
-                                      year: "numeric",
-                                    })}</>
-                                  )
-                                ) : dateRange.to ? (
-                                  <>Até {new Date(dateRange.to).toLocaleDateString("pt-BR", {
-                                    day: "2-digit",
-                                    month: "short",
-                                    year: "numeric",
-                                  })}</>
-                                ) : (
-                                  <span className="text-gray-500">Selecionar período</span>
-                                )}
-                              </Button>
-                            </PopoverTrigger>
-                            <PopoverContent className="w-auto p-0" align="start">
-                              <div className="p-3 space-y-2">
-                                <div className="text-sm font-medium text-gray-700 dark:text-zinc-300">
-                                  Selecione o período
+                                    <span className="text-gray-500">
+                                      Selecionar período
+                                    </span>
+                                  )}
+                                </Button>
+                              </PopoverTrigger>
+                              <PopoverContent
+                                className="w-auto p-0"
+                                align="start"
+                              >
+                                <div className="p-3 space-y-2">
+                                  <div className="text-sm font-medium text-gray-700 dark:text-zinc-300">
+                                    Selecione o período
+                                  </div>
+                                  <Calendar
+                                    mode="range"
+                                    selected={{
+                                      from: dateRange.from,
+                                      to: dateRange.to,
+                                    }}
+                                    onSelect={(range) => {
+                                      setDateRange({
+                                        from: range?.from,
+                                        to: range?.to,
+                                      });
+                                    }}
+                                    numberOfMonths={2}
+                                    className="rounded-md border"
+                                  />
                                 </div>
-                                <Calendar
-                                  mode="range"
-                                  selected={{
-                                    from: dateRange.from,
-                                    to: dateRange.to,
-                                  }}
-                                  onSelect={(range) => {
-                                    setDateRange({
-                                      from: range?.from,
-                                      to: range?.to,
-                                    });
-                                  }}
-                                  numberOfMonths={2}
-                                  className="rounded-md border"
-                                />
-                              </div>
-                            </PopoverContent>
-                          </Popover>
-                            
+                              </PopoverContent>
+                            </Popover>
+
                             {(dateRange.from || dateRange.to) && (
                               <Button
                                 variant="ghost"
@@ -1128,8 +1459,13 @@ export default function SearchUser() {
 
                             {(dateRange.from || dateRange.to) && (
                               <div className="text-xs text-gray-500 dark:text-zinc-400">
-                                {filterResultsByDateRange(searchResult.data.results).length} de{" "}
-                                {searchResult.data.results.length} resultados no período
+                                {
+                                  filterResultsByDateRange(
+                                    searchResult.data.results
+                                  ).length
+                                }{" "}
+                                de {searchResult.data.results.length} resultados
+                                no período
                               </div>
                             )}
                           </div>
@@ -1334,7 +1670,7 @@ export default function SearchUser() {
                                             Filtrar por período:
                                           </span>
                                         </div>
-                                        
+
                                         <div className="flex flex-wrap items-center gap-2">
                                           <Popover>
                                             <PopoverTrigger asChild>
@@ -1347,36 +1683,67 @@ export default function SearchUser() {
                                                 {dateRange.from ? (
                                                   dateRange.to ? (
                                                     <>
-                                                      {new Date(dateRange.from).toLocaleDateString("pt-BR", {
-                                                        day: "2-digit",
-                                                        month: "short",
-                                                      })}{" "}
+                                                      {new Date(
+                                                        dateRange.from
+                                                      ).toLocaleDateString(
+                                                        "pt-BR",
+                                                        {
+                                                          day: "2-digit",
+                                                          month: "short",
+                                                        }
+                                                      )}{" "}
                                                       -{" "}
-                                                      {new Date(dateRange.to).toLocaleDateString("pt-BR", {
+                                                      {new Date(
+                                                        dateRange.to
+                                                      ).toLocaleDateString(
+                                                        "pt-BR",
+                                                        {
+                                                          day: "2-digit",
+                                                          month: "short",
+                                                          year: "numeric",
+                                                        }
+                                                      )}
+                                                    </>
+                                                  ) : (
+                                                    <>
+                                                      A partir de{" "}
+                                                      {new Date(
+                                                        dateRange.from
+                                                      ).toLocaleDateString(
+                                                        "pt-BR",
+                                                        {
+                                                          day: "2-digit",
+                                                          month: "short",
+                                                          year: "numeric",
+                                                        }
+                                                      )}
+                                                    </>
+                                                  )
+                                                ) : dateRange.to ? (
+                                                  <>
+                                                    Até{" "}
+                                                    {new Date(
+                                                      dateRange.to
+                                                    ).toLocaleDateString(
+                                                      "pt-BR",
+                                                      {
                                                         day: "2-digit",
                                                         month: "short",
                                                         year: "numeric",
-                                                      })}
-                                                    </>
-                                                  ) : (
-                                                    <>A partir de {new Date(dateRange.from).toLocaleDateString("pt-BR", {
-                                                      day: "2-digit",
-                                                      month: "short",
-                                                      year: "numeric",
-                                                    })}</>
-                                                  )
-                                                ) : dateRange.to ? (
-                                                  <>Até {new Date(dateRange.to).toLocaleDateString("pt-BR", {
-                                                    day: "2-digit",
-                                                    month: "short",
-                                                    year: "numeric",
-                                                  })}</>
+                                                      }
+                                                    )}
+                                                  </>
                                                 ) : (
-                                                  <span className="text-gray-500">Selecionar período</span>
+                                                  <span className="text-gray-500">
+                                                    Selecionar período
+                                                  </span>
                                                 )}
                                               </Button>
                                             </PopoverTrigger>
-                                            <PopoverContent className="w-auto p-0" align="start">
+                                            <PopoverContent
+                                              className="w-auto p-0"
+                                              align="start"
+                                            >
                                               <div className="p-3 space-y-2">
                                                 <div className="text-sm font-medium text-gray-700 dark:text-zinc-300">
                                                   Selecione o período
@@ -1399,7 +1766,7 @@ export default function SearchUser() {
                                               </div>
                                             </PopoverContent>
                                           </Popover>
-                                          
+
                                           {(dateRange.from || dateRange.to) && (
                                             <Button
                                               variant="ghost"
@@ -1414,8 +1781,12 @@ export default function SearchUser() {
 
                                           {(dateRange.from || dateRange.to) && (
                                             <div className="text-xs text-gray-500 dark:text-zinc-400">
-                                              {filterResultsByDateRange(examResults).length} de{" "}
-                                              {examResults.length} resultados
+                                              {
+                                                filterResultsByDateRange(
+                                                  examResults
+                                                ).length
+                                              }{" "}
+                                              de {examResults.length} resultados
                                             </div>
                                           )}
                                         </div>
@@ -1469,7 +1840,9 @@ export default function SearchUser() {
                                                     Data:
                                                   </span>
                                                   <p className="text-sm">
-                                                    {formatDate(result.createdAt)}
+                                                    {formatDate(
+                                                      result.createdAt
+                                                    )}
                                                   </p>
                                                 </div>
                                               </div>
@@ -1610,7 +1983,7 @@ export default function SearchUser() {
               Tem certeza que deseja excluir este resultado?
             </DialogDescription>
           </DialogHeader>
-          
+
           {resultToDelete && (
             <div className="py-4 space-y-2">
               <div className="text-sm">
