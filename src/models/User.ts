@@ -19,6 +19,11 @@ const UserSchema = new mongoose.Schema({
     type: String,
     default: null,
   },
+  // Integrat things
+  integratPartnerToken: {
+    type: String,
+    default: null,
+  },
   // Subscription information
   subscription: {
     plan: {

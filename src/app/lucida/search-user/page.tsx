@@ -62,6 +62,7 @@ interface User {
   email: string;
   displayName: string;
   integrationId?: string | null;
+  integratPartnerToken?: string | null;
   subscription: {
     plan: string;
     status: string;
@@ -154,6 +155,12 @@ export default function SearchUser() {
   const [isEditingIntegration, setIsEditingIntegration] = useState(false);
   const [selectedIntegrationId, setSelectedIntegrationId] = useState("");
   const [isUpdatingIntegration, setIsUpdatingIntegration] = useState(false);
+  const [isEditingIntegratPartnerToken, setIsEditingIntegratPartnerToken] =
+    useState(false);
+  const [selectedIntegratPartnerToken, setSelectedIntegratPartnerToken] =
+    useState("");
+  const [isUpdatingIntegratPartnerToken, setIsUpdatingIntegratPartnerToken] =
+    useState(false);
   const [dateRange, setDateRange] = useState<{
     from: Date | undefined;
     to: Date | undefined;
@@ -390,6 +397,74 @@ export default function SearchUser() {
   const handleCancelEditIntegration = () => {
     setIsEditingIntegration(false);
     setSelectedIntegrationId("");
+  };
+
+  const handleEditIntegratPartnerToken = () => {
+    if (searchResult?.data?.user) {
+      setSelectedIntegratPartnerToken(
+        searchResult.data.user.integratPartnerToken ?? ""
+      );
+      setIsEditingIntegratPartnerToken(true);
+    }
+  };
+
+  const handleCancelEditIntegratPartnerToken = () => {
+    setIsEditingIntegratPartnerToken(false);
+    setSelectedIntegratPartnerToken("");
+  };
+
+  const handleUpdateIntegratPartnerToken = async () => {
+    if (!searchResult?.data?.user) return;
+
+    setIsUpdatingIntegratPartnerToken(true);
+    setError(null);
+    try {
+      const response = await fetch(
+        `/api/lucida/users/${searchResult.data.user.id}/integrat-partner-token`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            integratPartnerToken: selectedIntegratPartnerToken,
+          }),
+        }
+      );
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to update Integrat Partner Token");
+      }
+
+      const normalized =
+        selectedIntegratPartnerToken.trim() === ""
+          ? null
+          : selectedIntegratPartnerToken.trim();
+
+      setSearchResult((prev) => {
+        if (!prev?.data) return prev;
+        return {
+          ...prev,
+          data: {
+            ...prev.data,
+            user: {
+              ...prev.data.user,
+              integratPartnerToken: normalized,
+            },
+          },
+        };
+      });
+
+      setIsEditingIntegratPartnerToken(false);
+      setSelectedIntegratPartnerToken("");
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "An error occurred while updating the Integrat Partner Token"
+      );
+    } finally {
+      setIsUpdatingIntegratPartnerToken(false);
+    }
   };
 
   const handleUpdateIntegration = async () => {
@@ -1234,6 +1309,74 @@ export default function SearchUser() {
                             </div>
                           </div>
                         </div>
+
+                        {/* Integrat things */}
+                        {searchResult.data.user.integrationId == process.env.NEXT_PUBLIC_INTEGRAT_INTEGRATION_ID && (
+                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 my-4">
+                            <div className="space-y-2">
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2 text-sm font-medium text-gray-600 dark:text-zinc-400">
+                                  Integrat Partner Token
+                                </div>
+                                {!isEditingIntegratPartnerToken && (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={handleEditIntegratPartnerToken}
+                                    className="h-6 w-6 p-0 text-gray-500 hover:text-blue-600 dark:text-zinc-400 dark:hover:text-blue-400"
+                                  >
+                                    <EditIcon className="h-3 w-3" />
+                                  </Button>
+                                )}
+                              </div>
+
+                              {isEditingIntegratPartnerToken ? (
+                                <div className="flex items-center gap-2">
+                                  <Input
+                                    value={selectedIntegratPartnerToken}
+                                    onChange={(e) =>
+                                      setSelectedIntegratPartnerToken(
+                                        e.target.value
+                                      )
+                                    }
+                                    disabled={isUpdatingIntegratPartnerToken}
+                                    placeholder="Cole o token do parceiro"
+                                    className="flex-1 font-mono"
+                                  />
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={handleUpdateIntegratPartnerToken}
+                                    disabled={isUpdatingIntegratPartnerToken}
+                                    className="flex items-center gap-1"
+                                  >
+                                    {isUpdatingIntegratPartnerToken ? (
+                                      <LoaderIcon className="h-3 w-3 animate-spin" />
+                                    ) : (
+                                      <SaveIcon className="h-3 w-3" />
+                                    )}
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={
+                                      handleCancelEditIntegratPartnerToken
+                                    }
+                                    disabled={isUpdatingIntegratPartnerToken}
+                                    className="h-8 w-8 p-0"
+                                  >
+                                    <XIcon className="h-3 w-3" />
+                                  </Button>
+                                </div>
+                              ) : (
+                                <p className="text-base font-mono bg-gray-50 dark:bg-zinc-800 px-3 py-2 rounded-md">
+                                  {searchResult.data.user.integratPartnerToken ||
+                                    "Não definido"}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                        )}
                       </div>
 
                       {/* Subscription Information */}
