@@ -35,6 +35,7 @@ import {
   CreditCardIcon,
   BookOpenIcon,
   TargetIcon,
+  PlugIcon,
   CalendarIcon,
   ClockIcon,
   ActivityIcon,
@@ -60,6 +61,7 @@ interface User {
   id: string;
   email: string;
   displayName: string;
+  integrationId?: string | null;
   subscription: {
     plan: string;
     status: string;
@@ -126,6 +128,12 @@ interface SearchResponse {
   error?: string;
 }
 
+interface IntegrationOption {
+  _id: string;
+  integrationId: string;
+  integrationName: string;
+}
+
 export default function SearchUser() {
   const searchParams = useSearchParams();
   const [searchQuery, setSearchQuery] = useState("");
@@ -141,6 +149,11 @@ export default function SearchUser() {
   const [isEditingUsage, setIsEditingUsage] = useState(false);
   const [selectedUsage, setSelectedUsage] = useState("");
   const [isUpdatingUsage, setIsUpdatingUsage] = useState(false);
+  const [integrations, setIntegrations] = useState<IntegrationOption[]>([]);
+  const [isLoadingIntegrations, setIsLoadingIntegrations] = useState(false);
+  const [isEditingIntegration, setIsEditingIntegration] = useState(false);
+  const [selectedIntegrationId, setSelectedIntegrationId] = useState("");
+  const [isUpdatingIntegration, setIsUpdatingIntegration] = useState(false);
   const [dateRange, setDateRange] = useState<{
     from: Date | undefined;
     to: Date | undefined;
@@ -168,6 +181,28 @@ export default function SearchUser() {
     };
 
     loadRecentSearches();
+  }, []);
+
+  // Load integrations for the Integration select
+  useEffect(() => {
+    const loadIntegrations = async () => {
+      setIsLoadingIntegrations(true);
+      try {
+        const response = await fetch("/api/lucida/integrations");
+        const data = await response.json();
+        if (!response.ok || !data?.success) {
+          throw new Error(data?.error || "Failed to fetch integrations");
+        }
+        setIntegrations((data?.data as IntegrationOption[]) || []);
+      } catch (err) {
+        console.error("Failed to load integrations:", err);
+        setIntegrations([]);
+      } finally {
+        setIsLoadingIntegrations(false);
+      }
+    };
+
+    loadIntegrations();
   }, []);
 
   // Handle URL search parameter
@@ -343,6 +378,107 @@ export default function SearchUser() {
   const handleCancelEditUsage = () => {
     setIsEditingUsage(false);
     setSelectedUsage("");
+  };
+
+  const handleEditIntegration = () => {
+    if (searchResult?.data?.user) {
+      setSelectedIntegrationId(searchResult.data.user.integrationId ?? "");
+      setIsEditingIntegration(true);
+    }
+  };
+
+  const handleCancelEditIntegration = () => {
+    setIsEditingIntegration(false);
+    setSelectedIntegrationId("");
+  };
+
+  const handleUpdateIntegration = async () => {
+    if (!searchResult?.data?.user || !selectedIntegrationId) return;
+
+    setIsUpdatingIntegration(true);
+    setError(null);
+    try {
+      const response = await fetch(
+        `/api/lucida/users/${searchResult.data.user.id}/integration`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ integrationId: selectedIntegrationId }),
+        }
+      );
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to update integration");
+      }
+
+      setSearchResult((prev) => {
+        if (!prev?.data) return prev;
+        return {
+          ...prev,
+          data: {
+            ...prev.data,
+            user: {
+              ...prev.data.user,
+              integrationId: selectedIntegrationId,
+            },
+          },
+        };
+      });
+
+      setIsEditingIntegration(false);
+      setSelectedIntegrationId("");
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "An error occurred while updating the integration"
+      );
+    } finally {
+      setIsUpdatingIntegration(false);
+    }
+  };
+
+  const handleRemoveIntegration = async () => {
+    if (!searchResult?.data?.user) return;
+
+    setIsUpdatingIntegration(true);
+    setError(null);
+    try {
+      const response = await fetch(
+        `/api/lucida/users/${searchResult.data.user.id}/integration`,
+        { method: "DELETE" }
+      );
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to remove integration");
+      }
+
+      setSearchResult((prev) => {
+        if (!prev?.data) return prev;
+        return {
+          ...prev,
+          data: {
+            ...prev.data,
+            user: {
+              ...prev.data.user,
+              integrationId: null,
+            },
+          },
+        };
+      });
+
+      setIsEditingIntegration(false);
+      setSelectedIntegrationId("");
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "An error occurred while removing the integration"
+      );
+    } finally {
+      setIsUpdatingIntegration(false);
+    }
   };
 
   const handleUpdatePlan = async () => {
@@ -956,6 +1092,146 @@ export default function SearchUser() {
                             <p className="text-base bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 px-3 py-2 rounded-md font-medium">
                               {searchResult.data.user.displayName}
                             </p>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Integration */}
+                      <div>
+                        <h3 className="text-lg font-semibold text-gray-900 dark:text-zinc-50 mb-4 flex items-center gap-2">
+                          <PlugIcon className="h-5 w-5" />
+                          Integração
+                        </h3>
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2 text-sm font-medium text-gray-600 dark:text-zinc-400">
+                                Integração vinculada
+                              </div>
+                              {!isEditingIntegration && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={handleEditIntegration}
+                                  className="h-6 w-6 p-0 text-gray-500 hover:text-blue-600 dark:text-zinc-400 dark:hover:text-blue-400"
+                                  disabled={isUpdatingIntegration}
+                                  title="Editar integração"
+                                >
+                                  <EditIcon className="h-3 w-3" />
+                                </Button>
+                              )}
+                            </div>
+
+                            {isEditingIntegration ? (
+                              <div className="flex items-center gap-2">
+                                <select
+                                  value={selectedIntegrationId}
+                                  onChange={(e) =>
+                                    setSelectedIntegrationId(e.target.value)
+                                  }
+                                  disabled={isUpdatingIntegration}
+                                  className="flex-1 h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                                >
+                                  <option value="">
+                                    {isLoadingIntegrations
+                                      ? "Carregando integrações..."
+                                      : "Selecione uma integração"}
+                                  </option>
+                                  {integrations.map((it) => (
+                                    <option
+                                      key={it.integrationId}
+                                      value={it.integrationId}
+                                    >
+                                      {it.integrationName}
+                                    </option>
+                                  ))}
+                                </select>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={handleUpdateIntegration}
+                                  disabled={
+                                    isUpdatingIntegration ||
+                                    !selectedIntegrationId
+                                  }
+                                  className="flex items-center gap-1"
+                                  title="Salvar"
+                                >
+                                  {isUpdatingIntegration ? (
+                                    <LoaderIcon className="h-3 w-3 animate-spin" />
+                                  ) : (
+                                    <SaveIcon className="h-3 w-3" />
+                                  )}
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={handleCancelEditIntegration}
+                                  disabled={isUpdatingIntegration}
+                                  className="h-8 w-8 p-0"
+                                  title="Cancelar"
+                                >
+                                  <XIcon className="h-3 w-3" />
+                                </Button>
+                              </div>
+                            ) : (
+                              <div className="px-3 py-2 rounded-md bg-gray-50 dark:bg-zinc-800">
+                                {(() => {
+                                  const currentId =
+                                    searchResult.data.user.integrationId;
+                                  const resolved = integrations.find(
+                                    (x) => x.integrationId === currentId
+                                  );
+                                  if (!currentId) {
+                                    return (
+                                      <span className="text-gray-500 dark:text-zinc-400">
+                                        Nenhuma
+                                      </span>
+                                    );
+                                  }
+                                  const name = resolved?.integrationName
+                                    ? resolved.integrationName
+                                    : isLoadingIntegrations
+                                    ? "Carregando..."
+                                    : "Integração não encontrada";
+                                  return (
+                                    <div className="flex flex-col gap-1">
+                                      <span className="font-medium">
+                                        {name}
+                                      </span>
+                                      <span className="font-mono text-xs text-gray-600 dark:text-zinc-400">
+                                        {currentId}
+                                      </span>
+                                    </div>
+                                  );
+                                })()}
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="space-y-2">
+                            <div className="flex items-center gap-2 text-sm font-medium text-gray-600 dark:text-zinc-400">
+                              Ações
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Button
+                                variant="destructive"
+                                size="sm"
+                                onClick={handleRemoveIntegration}
+                                disabled={
+                                  isUpdatingIntegration ||
+                                  !searchResult.data.user.integrationId
+                                }
+                                className="flex items-center gap-2"
+                              >
+                                {isUpdatingIntegration ? (
+                                  <LoaderIcon className="h-4 w-4 animate-spin" />
+                                ) : (
+                                  <Trash2Icon className="h-4 w-4" />
+                                )}
+                                Remover
+                              </Button>
+                            </div>
                           </div>
                         </div>
                       </div>

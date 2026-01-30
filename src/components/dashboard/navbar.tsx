@@ -11,6 +11,7 @@ import {
   ChevronRightIcon,
   LogOut,
   MonitorIcon,
+  PlugIcon,
 } from "lucide-react";
 import { ChartIcon, DashboardIcon, SearchIcon, UserListIcon } from "./icons";
 
@@ -114,6 +115,15 @@ export default function Navbar() {
               >
                 <MonitorIcon className="mr-3 h-4 w-4" />
                 Monitor
+              </Link>
+
+              <Link
+                href="/lucida/integrations"
+                onClick={() => setIsMobileMenuOpen(false)}
+                className="group flex items-center px-3 py-2 text-sm font-medium rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200 focus:outline-none focus:ring-2 focus:ring-zinc-500 dark:focus:ring-zinc-400 transition-all duration-200"
+              >
+                <PlugIcon className="mr-3 h-4 w-4" />
+                Integrações
               </Link>
             </div>
           )}

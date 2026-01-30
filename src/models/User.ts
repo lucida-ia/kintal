@@ -14,6 +14,11 @@ const UserSchema = new mongoose.Schema({
     type: String,
     default: null,
   },
+  // Optional integration link
+  integrationId: {
+    type: String,
+    default: null,
+  },
   // Subscription information
   subscription: {
     plan: {
