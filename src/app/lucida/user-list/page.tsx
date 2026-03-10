@@ -40,6 +40,7 @@ import {
   MailIcon,
   UserIcon,
   CopyIcon,
+  FileDownIcon,
   Building2Icon,
   SearchIcon,
 } from "lucide-react";
@@ -97,6 +98,7 @@ export default function UserList() {
   const [users, setUsers] = useState<User[]>([]);
   const [pagination, setPagination] = useState<PaginationInfo | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Filter states
@@ -150,35 +152,44 @@ export default function UserList() {
     setActiveQuickFilter(filterType);
   };
 
+  const buildListParams = useCallback(
+    (page: number, limitOverride?: string) => {
+      const params = new URLSearchParams();
+      params.append("page", page.toString());
+      params.append("limit", limitOverride ?? perPage);
+
+      if (idFilter.trim()) {
+        params.append("id", idFilter.trim());
+      }
+
+      if (dateRange.from) {
+        params.append("from", dateRange.from.toISOString());
+      }
+
+      if (dateRange.to) {
+        params.append("to", dateRange.to.toISOString());
+      }
+
+      if (institutionsOnly) {
+        params.append("institutionsOnly", "true");
+      }
+
+      if (subscriptionType.trim()) {
+        params.append("subscriptionType", subscriptionType.trim());
+      }
+
+      return params;
+    },
+    [dateRange, idFilter, institutionsOnly, perPage, subscriptionType]
+  );
+
   const fetchUsers = useCallback(
     async (page: number = 1) => {
       setIsLoading(true);
       setError(null);
 
       try {
-        const params = new URLSearchParams();
-        params.append("page", page.toString());
-        params.append("limit", perPage);
-
-        if (idFilter.trim()) {
-          params.append("id", idFilter.trim());
-        }
-
-        if (dateRange.from) {
-          params.append("from", dateRange.from.toISOString());
-        }
-
-        if (dateRange.to) {
-          params.append("to", dateRange.to.toISOString());
-        }
-
-        if (institutionsOnly) {
-          params.append("institutionsOnly", "true");
-        }
-
-        if (subscriptionType.trim()) {
-          params.append("subscriptionType", subscriptionType.trim());
-        }
+        const params = buildListParams(page);
 
         const response = await fetch(
           `/api/lucida/users/list?${params.toString()}`
@@ -203,8 +214,88 @@ export default function UserList() {
         setIsLoading(false);
       }
     },
-    [idFilter, dateRange, institutionsOnly, subscriptionType, perPage]
+    [buildListParams]
   );
+
+  const getPlanLabel = (plan: string) => {
+    switch (plan) {
+      case "trial":
+        return "Trial";
+      case "monthly":
+        return "Mensal";
+      case "semi-annual":
+        return "Semestral";
+      case "annual":
+        return "Anual";
+      case "admin":
+        return "Admin";
+      case "custom":
+        return "Personalizado";
+      default:
+        return plan || "";
+    }
+  };
+
+  const escapeCsv = (value: string, delimiter: string) => {
+    const needsQuoting =
+      value.includes('"') ||
+      value.includes("\n") ||
+      value.includes("\r") ||
+      value.includes(delimiter);
+    if (!needsQuoting) return value;
+    return `"${value.replaceAll('"', '""')}"`;
+  };
+
+  const exportFilteredUsersToCsv = async () => {
+    if (isExporting) return;
+    setIsExporting(true);
+    setError(null);
+
+    try {
+      const params = buildListParams(1, "all");
+      const response = await fetch(`/api/lucida/users/list?${params.toString()}`);
+      const data: UserListResponse = await response.json();
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || "Falha ao exportar usuários");
+      }
+
+      const delimiter = ";";
+      const header = ["Nome", "Email", "Número", "Tipo de assinatura"];
+
+      const lines = [
+        header.join(delimiter),
+        ...data.data.map((u) => {
+          const numero = u.id || u.clerk_id || "";
+          const row = [
+            u.displayName || "",
+            u.email || "",
+            numero,
+            getPlanLabel(u.subscription?.plan || ""),
+          ];
+          return row.map((v) => escapeCsv(String(v), delimiter)).join(delimiter);
+        }),
+      ];
+
+      const csv = `\uFEFF${lines.join("\r\n")}`;
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `usuarios-filtrados-${new Date()
+        .toISOString()
+        .slice(0, 10)}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Falha ao exportar usuários");
+    } finally {
+      setIsExporting(false);
+    }
+  };
 
   // Initial fetch
   useEffect(() => {
@@ -507,6 +598,20 @@ export default function UserList() {
               >
                 <CopyIcon className="h-4 w-4" />
                 Copiar Emails
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={exportFilteredUsersToCsv}
+                disabled={
+                  isLoading ||
+                  isExporting ||
+                  (pagination ? pagination.totalUsers === 0 : users.length === 0)
+                }
+                className="text-xs"
+              >
+                <FileDownIcon className="h-4 w-4" />
+                {isExporting ? "Exportando..." : "Exportar CSV"}
               </Button>
               <div className="flex items-center gap-2">
                 <span className="text-sm text-gray-600 dark:text-zinc-400">
