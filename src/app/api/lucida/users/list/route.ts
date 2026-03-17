@@ -113,42 +113,51 @@ export async function GET(request: NextRequest) {
       };
     });
 
-    // Batch-fetch exam stats (count + last exam date) per userId
+    // Batch-fetch exam stats (count + last exam date + examIds) per userId
     const userIds = transformedUsers.map((u) => u.id).filter(Boolean);
-    const userEmails = transformedUsers.map((u) => u.email).filter(Boolean);
 
-    const [examStats, resultStats] = await Promise.all([
-      Exam.aggregate([
-        { $match: { userId: { $in: userIds } } },
-        {
-          $group: {
-            _id: "$userId",
-            examCount: { $sum: 1 },
-            lastExamDate: { $max: "$createdAt" },
-          },
+    const examStats = await Exam.aggregate([
+      { $match: { userId: { $in: userIds } } },
+      {
+        $group: {
+          _id: "$userId",
+          examCount: { $sum: 1 },
+          lastExamDate: { $max: "$createdAt" },
+          firstExamDate: { $min: "$createdAt" },
+          examIds: { $push: { $toString: "$_id" } },
         },
-      ]),
-      Result.aggregate([
-        { $match: { email: { $in: userEmails } } },
-        {
-          $group: {
-            _id: "$email",
-            resultCount: { $sum: 1 },
-          },
-        },
-      ]),
+      },
     ]);
 
+    // Build examId -> userId map to allow result counts to be attributed to exam owners
+    const examIdToUserId = new Map<string, string>();
+    for (const s of examStats as { _id: string; examIds: string[] }[]) {
+      for (const examId of s.examIds) {
+        examIdToUserId.set(examId, s._id);
+      }
+    }
+    const allExamIds = Array.from(examIdToUserId.keys());
+
+    // Count results per examId, then aggregate by userId
+    const resultStats = allExamIds.length > 0
+      ? await Result.aggregate([
+          { $match: { examId: { $in: allExamIds } } },
+          { $group: { _id: "$examId", count: { $sum: 1 } } },
+        ])
+      : [];
+
+    const resultCountPerUser = new Map<string, number>();
+    for (const r of resultStats as { _id: string; count: number }[]) {
+      const userId = examIdToUserId.get(r._id);
+      if (userId) {
+        resultCountPerUser.set(userId, (resultCountPerUser.get(userId) ?? 0) + r.count);
+      }
+    }
+
     const examStatsMap = new Map(
-      examStats.map((s: { _id: string; examCount: number; lastExamDate: Date }) => [
+      (examStats as { _id: string; examCount: number; lastExamDate: Date; firstExamDate: Date }[]).map((s) => [
         s._id,
-        { examCount: s.examCount, lastExamDate: s.lastExamDate },
-      ])
-    );
-    const resultStatsMap = new Map(
-      resultStats.map((s: { _id: string; resultCount: number }) => [
-        s._id,
-        s.resultCount,
+        { examCount: s.examCount, lastExamDate: s.lastExamDate, firstExamDate: s.firstExamDate },
       ])
     );
 
@@ -156,7 +165,8 @@ export async function GET(request: NextRequest) {
       ...u,
       examCount: examStatsMap.get(u.id)?.examCount ?? 0,
       lastExamDate: examStatsMap.get(u.id)?.lastExamDate ?? null,
-      resultCount: resultStatsMap.get(u.email) ?? 0,
+      firstExamDate: examStatsMap.get(u.id)?.firstExamDate ?? null,
+      resultCount: resultCountPerUser.get(u.id) ?? 0,
     }));
 
     // Calculate pagination metadata

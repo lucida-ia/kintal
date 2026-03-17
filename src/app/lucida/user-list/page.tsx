@@ -72,6 +72,7 @@ interface User {
   examCount: number;
   resultCount: number;
   lastExamDate: string | null;
+  firstExamDate: string | null;
 }
 
 interface PaginationInfo {
@@ -292,6 +293,8 @@ export default function UserList() {
         "Provas criadas",
         "Resultados totais",
         "Última prova criada",
+        "Data de criação da primeira prova",
+        "Data de criação do usuário",
       ];
 
       const lines = [
@@ -303,6 +306,12 @@ export default function UserList() {
           const lastExam = u.lastExamDate
             ? new Date(u.lastExamDate).toLocaleDateString("pt-BR")
             : "";
+          const firstExam = u.firstExamDate
+            ? new Date(u.firstExamDate).toLocaleDateString("pt-BR")
+            : "";
+          const userCreatedAt = u.createdAt
+            ? new Date(u.createdAt).toLocaleDateString("pt-BR")
+            : "";
           const row = [
             clerkName,
             u.displayName || "",
@@ -312,6 +321,8 @@ export default function UserList() {
             String(u.examCount ?? 0),
             String(u.resultCount ?? 0),
             lastExam,
+            firstExam,
+            userCreatedAt,
           ];
           return row.map((v) => escapeCsv(String(v), delimiter)).join(delimiter);
         }),
