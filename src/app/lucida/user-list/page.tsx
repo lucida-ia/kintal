@@ -69,6 +69,9 @@ interface User {
   };
   createdAt: string;
   updatedAt: string;
+  examCount: number;
+  resultCount: number;
+  lastExamDate: string | null;
 }
 
 interface PaginationInfo {
@@ -252,6 +255,7 @@ export default function UserList() {
     setError(null);
 
     try {
+      // 1. Fetch full filtered user list
       const params = buildListParams(1, "all");
       const response = await fetch(`/api/lucida/users/list?${params.toString()}`);
       const data: UserListResponse = await response.json();
@@ -260,18 +264,54 @@ export default function UserList() {
         throw new Error(data.error || "Falha ao exportar usuários");
       }
 
+      // 2. Fetch Clerk names for all users
+      const clerkIds = data.data
+        .map((u) => u.clerk_id || u.id)
+        .filter(Boolean);
+
+      let clerkNameMap: Record<string, string> = {};
+      if (clerkIds.length > 0) {
+        const clerkRes = await fetch("/api/lucida/users/clerk-names", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ clerkIds }),
+        });
+        if (clerkRes.ok) {
+          const clerkData = await clerkRes.json();
+          if (clerkData.success) clerkNameMap = clerkData.data;
+        }
+      }
+
       const delimiter = ";";
-      const header = ["Nome", "Email", "Número", "Tipo de assinatura"];
+      const header = [
+        "Nome (Clerk)",
+        "Nome (Sistema)",
+        "Email",
+        "Número",
+        "Tipo de assinatura",
+        "Provas criadas",
+        "Resultados totais",
+        "Última prova criada",
+      ];
 
       const lines = [
         header.join(delimiter),
         ...data.data.map((u) => {
+          const clerkId = u.clerk_id || u.id || "";
+          const clerkName = clerkNameMap[clerkId] || "";
           const numero = u.id || u.clerk_id || "";
+          const lastExam = u.lastExamDate
+            ? new Date(u.lastExamDate).toLocaleDateString("pt-BR")
+            : "";
           const row = [
+            clerkName,
             u.displayName || "",
             u.email || "",
             numero,
             getPlanLabel(u.subscription?.plan || ""),
+            String(u.examCount ?? 0),
+            String(u.resultCount ?? 0),
+            lastExam,
           ];
           return row.map((v) => escapeCsv(String(v), delimiter)).join(delimiter);
         }),
@@ -431,12 +471,13 @@ export default function UserList() {
       <div className="space-y-6 mt-4">
         {/* Filter Section */}
         <div className="flex flex-col gap-4 mt-4 sm:mt-6 p-4 bg-gray-50 dark:bg-zinc-800/50 rounded-lg border dark:border-zinc-700">
-          {/* ID/Email Filter Row */}
-          <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
-            <span className="text-sm font-medium text-gray-700 dark:text-zinc-300 flex items-center">
-              Filtrar por ID/Email:
-            </span>
-            <div className="flex-1 sm:max-w-md">
+
+          {/* Row 1: Search + Subscription type */}
+          <div className="flex flex-wrap gap-3 items-center">
+            <div className="flex items-center gap-2 flex-1 min-w-[200px]">
+              <span className="text-sm font-medium text-gray-700 dark:text-zinc-300 whitespace-nowrap">
+                ID/Email:
+              </span>
               <Input
                 placeholder="Digite ID ou email..."
                 value={idFilter}
@@ -444,139 +485,80 @@ export default function UserList() {
                 className="w-full"
               />
             </div>
-          </div>
-
-          {/* Quick Filters Row */}
-          <div className="flex flex-col sm:flex-row gap-3">
-            <span className="text-sm font-medium text-gray-700 dark:text-zinc-300 flex items-center">
-              Filtros Rápidos:
-            </span>
-            <div className="flex flex-wrap gap-2">
-              {[
-                { key: "24h", label: "Últimas 24h" },
-                { key: "7d", label: "Últimos 7 dias" },
-                { key: "30d", label: "Últimos 30 dias" },
-                { key: "3m", label: "Últimos 3 meses" },
-              ].map((filter) => (
-                <Button
-                  key={filter.key}
-                  variant={
-                    activeQuickFilter === filter.key ? "default" : "outline"
-                  }
-                  size="sm"
-                  onClick={() => handleQuickFilter(filter.key)}
-                  disabled={isLoading}
-                  className="text-xs"
-                >
-                  {filter.label}
-                </Button>
-              ))}
-            </div>
-          </div>
-
-          {/* Custom Date Range Row */}
-          <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
-            <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
-              <span className="text-sm font-medium text-gray-700 dark:text-zinc-300">
-                Período Personalizado:
+            <div className="flex items-center gap-2 shrink-0">
+              <span className="text-sm font-medium text-gray-700 dark:text-zinc-300 whitespace-nowrap">
+                Assinatura:
               </span>
-              <Popover
-                open={isDatePickerOpen}
-                onOpenChange={setIsDatePickerOpen}
+              <select
+                value={subscriptionType}
+                onChange={(e) => setSubscriptionType(e.target.value)}
+                className="h-9 rounded-md border border-input bg-transparent px-3 text-sm min-w-[140px]"
+                disabled={isLoading}
               >
-                <PopoverTrigger asChild>
-                  <Button
-                    variant="outline"
-                    className="w-full sm:w-[300px] justify-start text-left font-normal"
-                  >
-                    <CalendarIcon className="mr-2 h-4 w-4" />
-                    {formatDateRange()}
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-auto p-0" align="start">
-                  <Calendar
-                    mode="range"
-                    defaultMonth={dateRange.from}
-                    selected={{
-                      from: dateRange.from,
-                      to: dateRange.to,
-                    }}
-                    onSelect={(range) => {
-                      setDateRange({
-                        from: range?.from,
-                        to: range?.to,
-                      });
-                      setActiveQuickFilter(null); // Clear quick filter when manually selecting dates
-                    }}
-                    numberOfMonths={2}
-                    locale={ptBR}
-                  />
-                </PopoverContent>
-              </Popover>
-
-              <div className="flex gap-2">
-                <Button
-                  onClick={handleFilterApply}
-                  disabled={isLoading}
-                  className="flex items-center gap-2"
-                >
-                  <FilterIcon className="h-4 w-4" />
-                  {isLoading ? "Carregando..." : "Filtrar"}
-                </Button>
-
-                {(dateRange.from ||
-                  dateRange.to ||
-                  activeQuickFilter ||
-                  idFilter.trim() ||
-                  institutionsOnly ||
-                  subscriptionType.trim()) && (
-                  <Button
-                    variant="outline"
-                    onClick={handleFilterClear}
-                    disabled={isLoading}
-                  >
-                    Limpar Filtros
-                  </Button>
-                )}
-              </div>
+                <option value="" className="bg-white dark:bg-zinc-900">Todos os tipos</option>
+                <option value="trial" className="bg-white dark:bg-zinc-900">Trial</option>
+                <option value="monthly" className="bg-white dark:bg-zinc-900">Mensal</option>
+                <option value="semi-annual" className="bg-white dark:bg-zinc-900">Semestral</option>
+                <option value="annual" className="bg-white dark:bg-zinc-900">Anual</option>
+                <option value="admin" className="bg-white dark:bg-zinc-900">Admin</option>
+                <option value="custom" className="bg-white dark:bg-zinc-900">Personalizado</option>
+              </select>
             </div>
-            <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-medium text-gray-700 dark:text-zinc-300">
-                  Tipo de Assinatura:
-                </span>
-                <select
-                  value={subscriptionType}
-                  onChange={(e) => setSubscriptionType(e.target.value)}
-                  className="h-9 rounded-md border border-input bg-transparent px-3 text-sm min-w-[150px]"
-                  disabled={isLoading}
+          </div>
+
+          {/* Row 2: Quick filters + Date range */}
+          <div className="flex flex-wrap gap-2 items-center">
+            <span className="text-sm font-medium text-gray-700 dark:text-zinc-300 whitespace-nowrap">
+              Período:
+            </span>
+            {[
+              { key: "24h", label: "24h" },
+              { key: "7d", label: "7 dias" },
+              { key: "30d", label: "30 dias" },
+              { key: "3m", label: "3 meses" },
+            ].map((filter) => (
+              <Button
+                key={filter.key}
+                variant={activeQuickFilter === filter.key ? "default" : "outline"}
+                size="sm"
+                onClick={() => handleQuickFilter(filter.key)}
+                disabled={isLoading}
+                className="text-xs"
+              >
+                {filter.label}
+              </Button>
+            ))}
+            <Popover open={isDatePickerOpen} onOpenChange={setIsDatePickerOpen}>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="text-xs justify-start text-left font-normal max-w-[260px]"
                 >
-                  <option value="" className="bg-white dark:bg-zinc-900">
-                    Todos os tipos
-                  </option>
-                  <option value="trial" className="bg-white dark:bg-zinc-900">
-                    Trial
-                  </option>
-                  <option value="monthly" className="bg-white dark:bg-zinc-900">
-                    Mensal
-                  </option>
-                  <option
-                    value="semi-annual"
-                    className="bg-white dark:bg-zinc-900"
-                  >
-                    Semestral
-                  </option>
-                  <option value="annual" className="bg-white dark:bg-zinc-900">
-                    Anual
-                  </option>
-                  <option value="admin" className="bg-white dark:bg-zinc-900">
-                    Admin
-                  </option>
-                  <option value="custom" className="bg-white dark:bg-zinc-900">
-                    Personalizado
-                  </option>
-                </select>
-              </div>
+                  <CalendarIcon className="mr-2 h-4 w-4 shrink-0" />
+                  <span className="truncate">{formatDateRange()}</span>
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0" align="start">
+                <Calendar
+                  mode="range"
+                  defaultMonth={dateRange.from}
+                  selected={{ from: dateRange.from, to: dateRange.to }}
+                  onSelect={(range) => {
+                    setDateRange({ from: range?.from, to: range?.to });
+                    setActiveQuickFilter(null);
+                  }}
+                  numberOfMonths={2}
+                  locale={ptBR}
+                />
+              </PopoverContent>
+            </Popover>
+          </div>
+
+          {/* Row 3: Actions */}
+          <div className="flex flex-wrap gap-2 items-center justify-between">
+            {/* Left side: secondary actions */}
+            <div className="flex flex-wrap gap-2 items-center">
               <Button
                 variant={institutionsOnly ? "default" : "outline"}
                 size="sm"
@@ -585,10 +567,29 @@ export default function UserList() {
                 className="text-xs"
               >
                 <Building2Icon className="h-4 w-4" />
-                {institutionsOnly
-                  ? "Somente Institucionais"
-                  : "Incluir Institucionais"}
+                {institutionsOnly ? "Somente Institucionais" : "Institucionais"}
               </Button>
+
+              <div className="flex items-center gap-1.5 shrink-0">
+                <span className="text-sm text-gray-600 dark:text-zinc-400 whitespace-nowrap">
+                  Por página:
+                </span>
+                <select
+                  value={perPage}
+                  onChange={(e) => setPerPage(e.target.value)}
+                  className="h-9 rounded-md border border-input bg-transparent px-2 text-sm"
+                  disabled={isLoading}
+                >
+                  {(["10", "50", "100", "1000", "all"] as const).map((v) => (
+                    <option key={v} value={v} className="bg-white dark:bg-zinc-900">
+                      {v === "all" ? "Todos" : v}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="h-5 w-px bg-gray-300 dark:bg-zinc-600 mx-1 hidden sm:block" />
+
               <Button
                 variant="outline"
                 size="sm"
@@ -613,27 +614,34 @@ export default function UserList() {
                 <FileDownIcon className="h-4 w-4" />
                 {isExporting ? "Exportando..." : "Exportar CSV"}
               </Button>
-              <div className="flex items-center gap-2">
-                <span className="text-sm text-gray-600 dark:text-zinc-400">
-                  Por página:
-                </span>
-                <select
-                  value={perPage}
-                  onChange={(e) => setPerPage(e.target.value)}
-                  className="h-9 rounded-md border border-input bg-transparent px-3 text-sm"
+            </div>
+
+            {/* Right side: filter apply/clear */}
+            <div className="flex gap-2 items-center ml-auto">
+              {(dateRange.from ||
+                dateRange.to ||
+                activeQuickFilter ||
+                idFilter.trim() ||
+                institutionsOnly ||
+                subscriptionType.trim()) && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleFilterClear}
                   disabled={isLoading}
                 >
-                  {(["10", "50", "100", "1000", "all"] as const).map((v) => (
-                    <option
-                      key={v}
-                      value={v}
-                      className="bg-white dark:bg-zinc-900"
-                    >
-                      {v === "all" ? "Todos" : v}
-                    </option>
-                  ))}
-                </select>
-              </div>
+                  Limpar Filtros
+                </Button>
+              )}
+              <Button
+                onClick={handleFilterApply}
+                disabled={isLoading}
+                size="sm"
+                className="flex items-center gap-2"
+              >
+                <FilterIcon className="h-4 w-4" />
+                {isLoading ? "Carregando..." : "Filtrar"}
+              </Button>
             </div>
           </div>
 
@@ -747,6 +755,28 @@ export default function UserList() {
                           </span>
                           <p>{formatDate(user.createdAt)}</p>
                         </div>
+                        <div>
+                          <span className="text-gray-500 dark:text-zinc-400">
+                            Provas criadas:
+                          </span>
+                          <p className="font-medium">{user.examCount ?? 0}</p>
+                        </div>
+                        <div>
+                          <span className="text-gray-500 dark:text-zinc-400">
+                            Resultados:
+                          </span>
+                          <p className="font-medium">{user.resultCount ?? 0}</p>
+                        </div>
+                        <div className="col-span-2">
+                          <span className="text-gray-500 dark:text-zinc-400">
+                            Última prova:
+                          </span>
+                          <p>
+                            {user.lastExamDate
+                              ? formatDate(user.lastExamDate)
+                              : "—"}
+                          </p>
+                        </div>
                       </div>
 
                       <div className="pt-3 border-t border-gray-200 dark:border-zinc-700">
@@ -774,6 +804,9 @@ export default function UserList() {
                         <TableHead>Clerk ID</TableHead>
                         <TableHead>Tipo de Assinatura</TableHead>
                         <TableHead>Status</TableHead>
+                        <TableHead>Provas Criadas</TableHead>
+                        <TableHead>Resultados</TableHead>
+                        <TableHead>Última Prova</TableHead>
                         <TableHead>Data de Criação</TableHead>
                         <TableHead>Ações</TableHead>
                       </TableRow>
@@ -818,6 +851,23 @@ export default function UserList() {
                                 {user.subscription.status}
                               </span>
                             </div>
+                          </TableCell>
+                          <TableCell>
+                            <span className="text-sm font-medium text-gray-800 dark:text-zinc-200">
+                              {user.examCount ?? 0}
+                            </span>
+                          </TableCell>
+                          <TableCell>
+                            <span className="text-sm font-medium text-gray-800 dark:text-zinc-200">
+                              {user.resultCount ?? 0}
+                            </span>
+                          </TableCell>
+                          <TableCell>
+                            <span className="text-sm text-gray-600 dark:text-zinc-400">
+                              {user.lastExamDate
+                                ? formatDate(user.lastExamDate)
+                                : "—"}
+                            </span>
                           </TableCell>
                           <TableCell>
                             <span className="text-sm text-gray-600 dark:text-zinc-400">

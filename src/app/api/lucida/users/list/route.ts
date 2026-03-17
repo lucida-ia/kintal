@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { connectToDB } from "@/lib/mongodg";
 import { User } from "@/models/User";
+import { Exam } from "@/models/Exam";
+import { Result } from "@/models/Result";
 
 export async function GET(request: NextRequest) {
   try {
@@ -111,6 +113,52 @@ export async function GET(request: NextRequest) {
       };
     });
 
+    // Batch-fetch exam stats (count + last exam date) per userId
+    const userIds = transformedUsers.map((u) => u.id).filter(Boolean);
+    const userEmails = transformedUsers.map((u) => u.email).filter(Boolean);
+
+    const [examStats, resultStats] = await Promise.all([
+      Exam.aggregate([
+        { $match: { userId: { $in: userIds } } },
+        {
+          $group: {
+            _id: "$userId",
+            examCount: { $sum: 1 },
+            lastExamDate: { $max: "$createdAt" },
+          },
+        },
+      ]),
+      Result.aggregate([
+        { $match: { email: { $in: userEmails } } },
+        {
+          $group: {
+            _id: "$email",
+            resultCount: { $sum: 1 },
+          },
+        },
+      ]),
+    ]);
+
+    const examStatsMap = new Map(
+      examStats.map((s: { _id: string; examCount: number; lastExamDate: Date }) => [
+        s._id,
+        { examCount: s.examCount, lastExamDate: s.lastExamDate },
+      ])
+    );
+    const resultStatsMap = new Map(
+      resultStats.map((s: { _id: string; resultCount: number }) => [
+        s._id,
+        s.resultCount,
+      ])
+    );
+
+    const enrichedUsers = transformedUsers.map((u) => ({
+      ...u,
+      examCount: examStatsMap.get(u.id)?.examCount ?? 0,
+      lastExamDate: examStatsMap.get(u.id)?.lastExamDate ?? null,
+      resultCount: resultStatsMap.get(u.email) ?? 0,
+    }));
+
     // Calculate pagination metadata
     const totalPages = limitIsAll
       ? 1
@@ -120,7 +168,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      data: transformedUsers,
+      data: enrichedUsers,
       pagination: {
         currentPage: page,
         totalPages,
