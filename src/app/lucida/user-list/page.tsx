@@ -270,17 +270,39 @@ export default function UserList() {
         .map((u) => u.clerk_id || u.id)
         .filter(Boolean);
 
-      let clerkNameMap: Record<string, string> = {};
-      if (clerkIds.length > 0) {
-        const clerkRes = await fetch("/api/lucida/users/clerk-names", {
+      const stripePayload = data.data.map((u) => ({
+        id: u.id,
+        stripeCustomerId: u.subscription?.stripeCustomerId,
+        email: u.email,
+      }));
+
+      const [clerkRes, stripeRes] = await Promise.all([
+        clerkIds.length > 0
+          ? fetch("/api/lucida/users/clerk-names", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ clerkIds }),
+            })
+          : Promise.resolve(null as Response | null),
+        fetch("/api/lucida/users/stripe-phones", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ clerkIds }),
-        });
-        if (clerkRes.ok) {
-          const clerkData = await clerkRes.json();
-          if (clerkData.success) clerkNameMap = clerkData.data;
-        }
+          body: JSON.stringify({ users: stripePayload }),
+        }),
+      ]);
+
+      let clerkNameMap: Record<string, string> = {};
+      if (clerkRes && clerkRes.ok) {
+        const clerkData = await clerkRes.json();
+        if (clerkData.success) clerkNameMap = clerkData.data ?? {};
+      }
+
+      let phoneMap: Record<string, string> = {};
+      if (stripeRes.ok) {
+        const stripeData = await stripeRes.json();
+        if (stripeData.success) phoneMap = stripeData.data ?? {};
+      } else {
+        console.error("Failed to fetch Stripe phone numbers for CSV export");
       }
 
       const delimiter = ";";
@@ -302,7 +324,7 @@ export default function UserList() {
         ...data.data.map((u) => {
           const clerkId = u.clerk_id || u.id || "";
           const clerkName = clerkNameMap[clerkId] || "";
-          const numero = u.id || u.clerk_id || "";
+          const numero = phoneMap[u.id] ?? "";
           const lastExam = u.lastExamDate
             ? new Date(u.lastExamDate).toLocaleDateString("pt-BR")
             : "";

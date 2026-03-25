@@ -18,6 +18,12 @@ Open [http://localhost:3000](http://localhost:3000) with your browser to see the
 
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 
+## Environment variables
+
+Add secrets in `.env.local` (not committed). For CSV export phone lookup from Stripe on the Lucida user list, set:
+
+- `STRIPE_SECRET_KEY` — Stripe secret API key (server-only; used by `/api/lucida/users/stripe-phones`). Without it, the **Número** column in the export stays empty.
+
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
 ## Learn More
