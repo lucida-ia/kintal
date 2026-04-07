@@ -61,6 +61,7 @@ interface User {
   id: string;
   email: string;
   displayName: string;
+  username?: string | null;
   integrationId?: string | null;
   integratPartnerToken?: string | null;
   subscription: {
@@ -79,6 +80,106 @@ interface User {
   };
   createdAt: string;
   updatedAt: string;
+}
+
+function resolveUserDisplay(
+  id: string,
+  email: string | null | undefined,
+  username: string | null | undefined
+) {
+  const resolvedEmail = email ?? id;
+  const displayName =
+    username ??
+    (typeof resolvedEmail === "string" && resolvedEmail.includes("@")
+      ? resolvedEmail.split("@")[0]
+      : id);
+  return { resolvedEmail, displayName };
+}
+
+function dateToDatetimeLocalValue(iso: string | undefined): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(
+    d.getHours()
+  )}:${pad(d.getMinutes())}`;
+}
+
+function applyUserFromApiResponse(
+  prev: User,
+  api: Record<string, unknown>
+): User {
+  const id = String(api.id ?? prev.id);
+  const { resolvedEmail, displayName } = resolveUserDisplay(
+    id,
+    api.email as string | null | undefined,
+    api.username as string | null | undefined
+  );
+  const sub = api.subscription as Record<string, unknown> | undefined;
+  const usage = api.usage as Record<string, unknown> | undefined;
+
+  const toIso = (v: unknown): string | undefined => {
+    if (v == null) return undefined;
+    if (typeof v === "string") return v;
+    if (v instanceof Date) return v.toISOString();
+    return undefined;
+  };
+
+  return {
+    ...prev,
+    id,
+    username:
+      api.username !== undefined
+        ? (api.username as string | null)
+        : prev.username,
+    email: resolvedEmail,
+    displayName,
+    integrationId:
+      api.integrationId !== undefined
+        ? (api.integrationId as string | null)
+        : prev.integrationId,
+    integratPartnerToken:
+      api.integratPartnerToken !== undefined
+        ? (api.integratPartnerToken as string | null)
+        : prev.integratPartnerToken,
+    subscription: sub
+      ? {
+          plan: (sub.plan as string) ?? prev.subscription.plan,
+          status: (sub.status as string) ?? prev.subscription.status,
+          stripeCustomerId:
+            sub.stripeCustomerId !== undefined
+              ? ((sub.stripeCustomerId as string | null) ?? undefined)
+              : prev.subscription.stripeCustomerId,
+          stripeSubscriptionId:
+            sub.stripeSubscriptionId !== undefined
+              ? ((sub.stripeSubscriptionId as string | null) ?? undefined)
+              : prev.subscription.stripeSubscriptionId,
+          currentPeriodStart:
+            toIso(sub.currentPeriodStart) ?? prev.subscription.currentPeriodStart,
+          currentPeriodEnd:
+            toIso(sub.currentPeriodEnd) ?? prev.subscription.currentPeriodEnd,
+          cancelAtPeriodEnd:
+            typeof sub.cancelAtPeriodEnd === "boolean"
+              ? sub.cancelAtPeriodEnd
+              : prev.subscription.cancelAtPeriodEnd,
+          trialEnd: toIso(sub.trialEnd) ?? prev.subscription.trialEnd,
+        }
+      : prev.subscription,
+    usage: usage
+      ? {
+          examsThisPeriod:
+            typeof usage.examsThisPeriod === "number"
+              ? usage.examsThisPeriod
+              : prev.usage.examsThisPeriod,
+          examsThisPeriodResetDate:
+            toIso(usage.examsThisPeriodResetDate) ??
+            prev.usage.examsThisPeriodResetDate,
+        }
+      : prev.usage,
+    createdAt: toIso(api.createdAt) ?? prev.createdAt,
+    updatedAt: toIso(api.updatedAt) ?? prev.updatedAt,
+  };
 }
 
 interface Exam {
@@ -144,23 +245,12 @@ export default function SearchUser() {
   const [expandedExams, setExpandedExams] = useState<Set<string>>(new Set());
   const [recentSearches, setRecentSearches] = useState<RecentSearch[]>([]);
   const [showRecentSearches, setShowRecentSearches] = useState(false);
-  const [isEditingPlan, setIsEditingPlan] = useState(false);
-  const [selectedPlan, setSelectedPlan] = useState("");
-  const [isUpdatingPlan, setIsUpdatingPlan] = useState(false);
-  const [isEditingUsage, setIsEditingUsage] = useState(false);
-  const [selectedUsage, setSelectedUsage] = useState("");
-  const [isUpdatingUsage, setIsUpdatingUsage] = useState(false);
+  /** Field key, e.g. "plan", "email", "subscription.status" */
+  const [editingField, setEditingField] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState("");
+  const [isUpdatingField, setIsUpdatingField] = useState(false);
   const [integrations, setIntegrations] = useState<IntegrationOption[]>([]);
   const [isLoadingIntegrations, setIsLoadingIntegrations] = useState(false);
-  const [isEditingIntegration, setIsEditingIntegration] = useState(false);
-  const [selectedIntegrationId, setSelectedIntegrationId] = useState("");
-  const [isUpdatingIntegration, setIsUpdatingIntegration] = useState(false);
-  const [isEditingIntegratPartnerToken, setIsEditingIntegratPartnerToken] =
-    useState(false);
-  const [selectedIntegratPartnerToken, setSelectedIntegratPartnerToken] =
-    useState("");
-  const [isUpdatingIntegratPartnerToken, setIsUpdatingIntegratPartnerToken] =
-    useState(false);
   const [dateRange, setDateRange] = useState<{
     from: Date | undefined;
     to: Date | undefined;
@@ -363,165 +453,245 @@ export default function SearchUser() {
     setRecentSearches([]);
   };
 
-  const handleEditPlan = () => {
-    if (searchResult?.data?.user) {
-      setSelectedPlan(searchResult.data.user.subscription.plan);
-      setIsEditingPlan(true);
-    }
+  const beginEdit = (field: string, value: string) => {
+    setEditingField(field);
+    setEditValue(value);
   };
 
-  const handleCancelEditPlan = () => {
-    setIsEditingPlan(false);
-    setSelectedPlan("");
+  const cancelEdit = () => {
+    setEditingField(null);
+    setEditValue("");
   };
 
-  const handleEditUsage = () => {
-    if (searchResult?.data?.user) {
-      setSelectedUsage(searchResult.data.user.usage.examsThisPeriod.toString());
-      setIsEditingUsage(true);
-    }
-  };
+  const saveEdit = async () => {
+    if (!searchResult?.data?.user || editingField === null) return;
+    const user = searchResult.data!.user;
+    const id = user.id;
+    const field = editingField;
 
-  const handleCancelEditUsage = () => {
-    setIsEditingUsage(false);
-    setSelectedUsage("");
-  };
-
-  const handleEditIntegration = () => {
-    if (searchResult?.data?.user) {
-      setSelectedIntegrationId(searchResult.data.user.integrationId ?? "");
-      setIsEditingIntegration(true);
-    }
-  };
-
-  const handleCancelEditIntegration = () => {
-    setIsEditingIntegration(false);
-    setSelectedIntegrationId("");
-  };
-
-  const handleEditIntegratPartnerToken = () => {
-    if (searchResult?.data?.user) {
-      setSelectedIntegratPartnerToken(
-        searchResult.data.user.integratPartnerToken ?? ""
-      );
-      setIsEditingIntegratPartnerToken(true);
-    }
-  };
-
-  const handleCancelEditIntegratPartnerToken = () => {
-    setIsEditingIntegratPartnerToken(false);
-    setSelectedIntegratPartnerToken("");
-  };
-
-  const handleUpdateIntegratPartnerToken = async () => {
-    if (!searchResult?.data?.user) return;
-
-    setIsUpdatingIntegratPartnerToken(true);
+    setIsUpdatingField(true);
     setError(null);
+
     try {
-      const response = await fetch(
-        `/api/lucida/users/${searchResult.data.user.id}/integrat-partner-token`,
-        {
+      if (field === "plan") {
+        if (!editValue.trim()) {
+          throw new Error("Selecione um plano");
+        }
+        const response = await fetch(`/api/lucida/users/${id}/plan`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            integratPartnerToken: selectedIntegratPartnerToken,
-          }),
+          body: JSON.stringify({ plan: editValue }),
+        });
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(data.error || "Failed to update plan");
         }
-      );
-
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.error || "Failed to update Integrat Partner Token");
+        const apiUser = data.data?.user as Record<string, unknown> | undefined;
+        if (apiUser) {
+          setSearchResult((prev) => {
+            if (!prev?.data) return prev;
+            return {
+              ...prev,
+              data: {
+                ...prev.data,
+                user: applyUserFromApiResponse(prev.data.user, apiUser),
+              },
+            };
+          });
+        }
+        cancelEdit();
+        return;
       }
 
-      const normalized =
-        selectedIntegratPartnerToken.trim() === ""
-          ? null
-          : selectedIntegratPartnerToken.trim();
-
-      setSearchResult((prev) => {
-        if (!prev?.data) return prev;
-        return {
-          ...prev,
-          data: {
-            ...prev.data,
-            user: {
-              ...prev.data.user,
-              integratPartnerToken: normalized,
-            },
-          },
-        };
-      });
-
-      setIsEditingIntegratPartnerToken(false);
-      setSelectedIntegratPartnerToken("");
-    } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : "An error occurred while updating the Integrat Partner Token"
-      );
-    } finally {
-      setIsUpdatingIntegratPartnerToken(false);
-    }
-  };
-
-  const handleUpdateIntegration = async () => {
-    if (!searchResult?.data?.user || !selectedIntegrationId) return;
-
-    setIsUpdatingIntegration(true);
-    setError(null);
-    try {
-      const response = await fetch(
-        `/api/lucida/users/${searchResult.data.user.id}/integration`,
-        {
+      if (field === "usage") {
+        const n = parseInt(editValue, 10);
+        if (editValue.trim() === "" || Number.isNaN(n) || n < 0) {
+          throw new Error("Informe um número válido de exames");
+        }
+        const response = await fetch(`/api/lucida/users/${id}/usage`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ integrationId: selectedIntegrationId }),
+          body: JSON.stringify({ examsThisPeriod: n }),
+        });
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(data.error || "Failed to update usage");
         }
-      );
-
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.error || "Failed to update integration");
+        const apiUser = data.data?.user as Record<string, unknown> | undefined;
+        if (apiUser) {
+          setSearchResult((prev) => {
+            if (!prev?.data) return prev;
+            return {
+              ...prev,
+              data: {
+                ...prev.data,
+                user: applyUserFromApiResponse(prev.data.user, apiUser),
+              },
+            };
+          });
+        }
+        cancelEdit();
+        return;
       }
 
-      setSearchResult((prev) => {
-        if (!prev?.data) return prev;
-        return {
-          ...prev,
-          data: {
-            ...prev.data,
-            user: {
-              ...prev.data.user,
-              integrationId: selectedIntegrationId,
-            },
+      if (field === "integration") {
+        if (!editValue.trim()) {
+          throw new Error("Selecione uma integração");
+        }
+        const response = await fetch(`/api/lucida/users/${id}/integration`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ integrationId: editValue }),
+        });
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(data.error || "Failed to update integration");
+        }
+        const apiUser = data.data?.user as Record<string, unknown> | undefined;
+        if (apiUser) {
+          setSearchResult((prev) => {
+            if (!prev?.data) return prev;
+            return {
+              ...prev,
+              data: {
+                ...prev.data,
+                user: applyUserFromApiResponse(prev.data.user, apiUser),
+              },
+            };
+          });
+        }
+        cancelEdit();
+        return;
+      }
+
+      if (field === "integratPartnerToken") {
+        const response = await fetch(
+          `/api/lucida/users/${id}/integrat-partner-token`,
+          {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ integratPartnerToken: editValue }),
+          }
+        );
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(data.error || "Failed to update Integrat Partner Token");
+        }
+        const apiUser = data.data?.user as Record<string, unknown> | undefined;
+        if (apiUser) {
+          setSearchResult((prev) => {
+            if (!prev?.data) return prev;
+            return {
+              ...prev,
+              data: {
+                ...prev.data,
+                user: applyUserFromApiResponse(prev.data.user, apiUser),
+              },
+            };
+          });
+        }
+        cancelEdit();
+        return;
+      }
+
+      let body: Record<string, unknown> = {};
+
+      if (field === "email") {
+        body = { email: editValue.trim() || null };
+      } else if (field === "username") {
+        body = { username: editValue.trim() || null };
+      } else if (field === "subscription.status") {
+        body = { subscription: { status: editValue } };
+      } else if (field === "subscription.cancelAtPeriodEnd") {
+        body = { subscription: { cancelAtPeriodEnd: editValue === "true" } };
+      } else if (field === "subscription.stripeCustomerId") {
+        body = {
+          subscription: { stripeCustomerId: editValue.trim() || null },
+        };
+      } else if (field === "subscription.stripeSubscriptionId") {
+        body = {
+          subscription: { stripeSubscriptionId: editValue.trim() || null },
+        };
+      } else if (field === "subscription.currentPeriodStart") {
+        body = {
+          subscription: {
+            currentPeriodStart:
+              editValue.trim() === ""
+                ? null
+                : new Date(editValue).toISOString(),
           },
         };
-      });
+      } else if (field === "subscription.currentPeriodEnd") {
+        body = {
+          subscription: {
+            currentPeriodEnd:
+              editValue.trim() === ""
+                ? null
+                : new Date(editValue).toISOString(),
+          },
+        };
+      } else if (field === "subscription.trialEnd") {
+        body = {
+          subscription: {
+            trialEnd:
+              editValue.trim() === ""
+                ? null
+                : new Date(editValue).toISOString(),
+          },
+        };
+      } else if (field === "usage.examsThisPeriodResetDate") {
+        body = {
+          usage: {
+            examsThisPeriodResetDate:
+              editValue.trim() === ""
+                ? null
+                : new Date(editValue).toISOString(),
+          },
+        };
+      } else {
+        throw new Error("Campo desconhecido");
+      }
 
-      setIsEditingIntegration(false);
-      setSelectedIntegrationId("");
+      const response = await fetch(`/api/lucida/users/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || "Falha ao atualizar usuário");
+      }
+      const apiUser = data.data?.user as Record<string, unknown> | undefined;
+      if (apiUser) {
+        setSearchResult((prev) => {
+          if (!prev?.data) return prev;
+          return {
+            ...prev,
+            data: {
+              ...prev.data,
+              user: applyUserFromApiResponse(prev.data.user, apiUser),
+            },
+          };
+        });
+      }
+      cancelEdit();
     } catch (err) {
       setError(
-        err instanceof Error
-          ? err.message
-          : "An error occurred while updating the integration"
+        err instanceof Error ? err.message : "Ocorreu um erro ao salvar"
       );
     } finally {
-      setIsUpdatingIntegration(false);
+      setIsUpdatingField(false);
     }
   };
 
   const handleRemoveIntegration = async () => {
     if (!searchResult?.data?.user) return;
 
-    setIsUpdatingIntegration(true);
+    setIsUpdatingField(true);
     setError(null);
     try {
       const response = await fetch(
-        `/api/lucida/users/${searchResult.data.user.id}/integration`,
+        `/api/lucida/users/${searchResult.data!.user.id}/integration`,
         { method: "DELETE" }
       );
       const data = await response.json();
@@ -529,22 +699,21 @@ export default function SearchUser() {
         throw new Error(data.error || "Failed to remove integration");
       }
 
-      setSearchResult((prev) => {
-        if (!prev?.data) return prev;
-        return {
-          ...prev,
-          data: {
-            ...prev.data,
-            user: {
-              ...prev.data.user,
-              integrationId: null,
+      const apiUser = data.data?.user as Record<string, unknown> | undefined;
+      if (apiUser) {
+        setSearchResult((prev) => {
+          if (!prev?.data) return prev;
+          return {
+            ...prev,
+            data: {
+              ...prev.data,
+              user: applyUserFromApiResponse(prev.data.user, apiUser),
             },
-          },
-        };
-      });
+          };
+        });
+      }
 
-      setIsEditingIntegration(false);
-      setSelectedIntegrationId("");
+      cancelEdit();
     } catch (err) {
       setError(
         err instanceof Error
@@ -552,118 +721,7 @@ export default function SearchUser() {
           : "An error occurred while removing the integration"
       );
     } finally {
-      setIsUpdatingIntegration(false);
-    }
-  };
-
-  const handleUpdatePlan = async () => {
-    if (!searchResult?.data?.user || !selectedPlan) return;
-
-    setIsUpdatingPlan(true);
-    setError(null);
-
-    try {
-      const response = await fetch(
-        `/api/lucida/users/${searchResult.data.user.id}/plan`,
-        {
-          method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ plan: selectedPlan }),
-        }
-      );
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || "Failed to update plan");
-      }
-
-      // Update the local state with the new plan
-      setSearchResult((prev) => {
-        if (!prev?.data) return prev;
-        return {
-          ...prev,
-          data: {
-            ...prev.data,
-            user: {
-              ...prev.data.user,
-              subscription: {
-                ...prev.data.user.subscription,
-                plan: selectedPlan,
-              },
-            },
-          },
-        };
-      });
-
-      setIsEditingPlan(false);
-      setSelectedPlan("");
-    } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : "An error occurred while updating the plan"
-      );
-    } finally {
-      setIsUpdatingPlan(false);
-    }
-  };
-
-  const handleUpdateUsage = async () => {
-    if (!searchResult?.data?.user || !selectedUsage) return;
-
-    setIsUpdatingUsage(true);
-    setError(null);
-
-    try {
-      const response = await fetch(
-        `/api/lucida/users/${searchResult.data.user.id}/usage`,
-        {
-          method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ examsThisPeriod: parseInt(selectedUsage) }),
-        }
-      );
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || "Failed to update usage");
-      }
-
-      // Update the local state with the new usage
-      setSearchResult((prev) => {
-        if (!prev?.data) return prev;
-        const newState = {
-          ...prev,
-          data: {
-            ...prev.data,
-            user: {
-              ...prev.data.user,
-              usage: {
-                ...prev.data.user.usage,
-                examsThisPeriod: parseInt(selectedUsage),
-              },
-            },
-          },
-        };
-        return newState;
-      });
-
-      setIsEditingUsage(false);
-      setSelectedUsage("");
-    } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : "An error occurred while updating the usage"
-      );
-    } finally {
-      setIsUpdatingUsage(false);
+      setIsUpdatingField(false);
     }
   };
 
@@ -914,7 +972,7 @@ export default function SearchUser() {
             }`
           : "";
       const filename = `resultados_usuario_${
-        searchResult.data.user.id
+        searchResult.data!.user.id
       }${dateRangeStr}_${new Date().toISOString().split("T")[0]}.csv`;
       downloadCSV(csvContent, filename);
     });
@@ -1147,26 +1205,130 @@ export default function SearchUser() {
                               ID do Usuário
                             </div>
                             <p className="text-base font-mono bg-gray-50 dark:bg-zinc-800 px-3 py-2 rounded-md">
-                              {searchResult.data.user.id}
+                              {searchResult.data!.user.id}
                             </p>
                           </div>
 
                           <div className="space-y-2">
-                            <div className="flex items-center gap-2 text-sm font-medium text-gray-600 dark:text-zinc-400">
-                              Email
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2 text-sm font-medium text-gray-600 dark:text-zinc-400">
+                                Email
+                              </div>
+                              {editingField !== "email" && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() =>
+                                    beginEdit(
+                                      "email",
+                                      searchResult.data!.user.email
+                                    )
+                                  }
+                                  className="h-6 w-6 p-0 text-gray-500 hover:text-blue-600 dark:text-zinc-400 dark:hover:text-blue-400"
+                                  disabled={isUpdatingField}
+                                  title="Editar email"
+                                >
+                                  <EditIcon className="h-3 w-3" />
+                                </Button>
+                              )}
                             </div>
-                            <p className="text-base font-mono bg-gray-50 dark:bg-zinc-800 px-3 py-2 rounded-md">
-                              {searchResult.data.user.email}
-                            </p>
+                            {editingField === "email" ? (
+                              <div className="flex items-center gap-2">
+                                <Input
+                                  value={editValue}
+                                  onChange={(e) => setEditValue(e.target.value)}
+                                  disabled={isUpdatingField}
+                                  className="font-mono flex-1"
+                                />
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={saveEdit}
+                                  disabled={isUpdatingField}
+                                >
+                                  {isUpdatingField ? (
+                                    <LoaderIcon className="h-3 w-3 animate-spin" />
+                                  ) : (
+                                    <SaveIcon className="h-3 w-3" />
+                                  )}
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={cancelEdit}
+                                  disabled={isUpdatingField}
+                                  className="h-8 w-8 p-0"
+                                >
+                                  <XIcon className="h-3 w-3" />
+                                </Button>
+                              </div>
+                            ) : (
+                              <p className="text-base font-mono bg-gray-50 dark:bg-zinc-800 px-3 py-2 rounded-md">
+                                {searchResult.data!.user.email}
+                              </p>
+                            )}
                           </div>
 
                           <div className="space-y-2">
-                            <div className="flex items-center gap-2 text-sm font-medium text-gray-600 dark:text-zinc-400">
-                              Nome de Usuário
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2 text-sm font-medium text-gray-600 dark:text-zinc-400">
+                                Nome de Usuário
+                              </div>
+                              {editingField !== "username" && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() =>
+                                    beginEdit(
+                                      "username",
+                                      searchResult.data!.user.username ??
+                                        searchResult.data!.user.displayName ??
+                                        ""
+                                    )
+                                  }
+                                  className="h-6 w-6 p-0 text-gray-500 hover:text-blue-600 dark:text-zinc-400 dark:hover:text-blue-400"
+                                  disabled={isUpdatingField}
+                                  title="Editar nome de usuário"
+                                >
+                                  <EditIcon className="h-3 w-3" />
+                                </Button>
+                              )}
                             </div>
-                            <p className="text-base bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 px-3 py-2 rounded-md font-medium">
-                              {searchResult.data.user.displayName}
-                            </p>
+                            {editingField === "username" ? (
+                              <div className="flex items-center gap-2">
+                                <Input
+                                  value={editValue}
+                                  onChange={(e) => setEditValue(e.target.value)}
+                                  disabled={isUpdatingField}
+                                  className="flex-1"
+                                />
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={saveEdit}
+                                  disabled={isUpdatingField}
+                                >
+                                  {isUpdatingField ? (
+                                    <LoaderIcon className="h-3 w-3 animate-spin" />
+                                  ) : (
+                                    <SaveIcon className="h-3 w-3" />
+                                  )}
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={cancelEdit}
+                                  disabled={isUpdatingField}
+                                  className="h-8 w-8 p-0"
+                                >
+                                  <XIcon className="h-3 w-3" />
+                                </Button>
+                              </div>
+                            ) : (
+                              <p className="text-base bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 px-3 py-2 rounded-md font-medium">
+                                {searchResult.data!.user.displayName}
+                              </p>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -1183,13 +1345,18 @@ export default function SearchUser() {
                               <div className="flex items-center gap-2 text-sm font-medium text-gray-600 dark:text-zinc-400">
                                 Integração vinculada
                               </div>
-                              {!isEditingIntegration && (
+                              {editingField !== "integration" && (
                                 <Button
                                   variant="ghost"
                                   size="sm"
-                                  onClick={handleEditIntegration}
+                                  onClick={() =>
+                                    beginEdit(
+                                      "integration",
+                                      searchResult.data!.user.integrationId ?? ""
+                                    )
+                                  }
                                   className="h-6 w-6 p-0 text-gray-500 hover:text-blue-600 dark:text-zinc-400 dark:hover:text-blue-400"
-                                  disabled={isUpdatingIntegration}
+                                  disabled={isUpdatingField}
                                   title="Editar integração"
                                 >
                                   <EditIcon className="h-3 w-3" />
@@ -1197,14 +1364,14 @@ export default function SearchUser() {
                               )}
                             </div>
 
-                            {isEditingIntegration ? (
+                            {editingField === "integration" ? (
                               <div className="flex items-center gap-2">
                                 <select
-                                  value={selectedIntegrationId}
+                                  value={editValue}
                                   onChange={(e) =>
-                                    setSelectedIntegrationId(e.target.value)
+                                    setEditValue(e.target.value)
                                   }
-                                  disabled={isUpdatingIntegration}
+                                  disabled={isUpdatingField}
                                   className="flex-1 h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                                 >
                                   <option value="">
@@ -1224,15 +1391,14 @@ export default function SearchUser() {
                                 <Button
                                   variant="outline"
                                   size="sm"
-                                  onClick={handleUpdateIntegration}
+                                  onClick={saveEdit}
                                   disabled={
-                                    isUpdatingIntegration ||
-                                    !selectedIntegrationId
+                                    isUpdatingField || !editValue.trim()
                                   }
                                   className="flex items-center gap-1"
                                   title="Salvar"
                                 >
-                                  {isUpdatingIntegration ? (
+                                  {isUpdatingField ? (
                                     <LoaderIcon className="h-3 w-3 animate-spin" />
                                   ) : (
                                     <SaveIcon className="h-3 w-3" />
@@ -1241,8 +1407,8 @@ export default function SearchUser() {
                                 <Button
                                   variant="ghost"
                                   size="sm"
-                                  onClick={handleCancelEditIntegration}
-                                  disabled={isUpdatingIntegration}
+                                  onClick={cancelEdit}
+                                  disabled={isUpdatingField}
                                   className="h-8 w-8 p-0"
                                   title="Cancelar"
                                 >
@@ -1253,7 +1419,7 @@ export default function SearchUser() {
                               <div className="px-3 py-2 rounded-md bg-gray-50 dark:bg-zinc-800">
                                 {(() => {
                                   const currentId =
-                                    searchResult.data.user.integrationId;
+                                    searchResult.data!.user.integrationId;
                                   const resolved = integrations.find(
                                     (x) => x.integrationId === currentId
                                   );
@@ -1294,12 +1460,12 @@ export default function SearchUser() {
                                 size="sm"
                                 onClick={handleRemoveIntegration}
                                 disabled={
-                                  isUpdatingIntegration ||
-                                  !searchResult.data.user.integrationId
+                                  isUpdatingField ||
+                                  !searchResult.data!.user.integrationId
                                 }
                                 className="flex items-center gap-2"
                               >
-                                {isUpdatingIntegration ? (
+                                {isUpdatingField ? (
                                   <LoaderIcon className="h-4 w-4 animate-spin" />
                                 ) : (
                                   <Trash2Icon className="h-4 w-4" />
@@ -1311,18 +1477,24 @@ export default function SearchUser() {
                         </div>
 
                         {/* Integrat things */}
-                        {searchResult.data.user.integrationId == process.env.NEXT_PUBLIC_INTEGRAT_INTEGRATION_ID && (
+                        {searchResult.data!.user.integrationId == process.env.NEXT_PUBLIC_INTEGRAT_INTEGRATION_ID && (
                           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 my-4">
                             <div className="space-y-2">
                               <div className="flex items-center justify-between">
                                 <div className="flex items-center gap-2 text-sm font-medium text-gray-600 dark:text-zinc-400">
                                   Integrat Partner Token
                                 </div>
-                                {!isEditingIntegratPartnerToken && (
+                                {editingField !== "integratPartnerToken" && (
                                   <Button
                                     variant="ghost"
                                     size="sm"
-                                    onClick={handleEditIntegratPartnerToken}
+                                    onClick={() =>
+                                      beginEdit(
+                                        "integratPartnerToken",
+                                        searchResult.data!.user
+                                          .integratPartnerToken ?? ""
+                                      )
+                                    }
                                     className="h-6 w-6 p-0 text-gray-500 hover:text-blue-600 dark:text-zinc-400 dark:hover:text-blue-400"
                                   >
                                     <EditIcon className="h-3 w-3" />
@@ -1330,27 +1502,25 @@ export default function SearchUser() {
                                 )}
                               </div>
 
-                              {isEditingIntegratPartnerToken ? (
+                              {editingField === "integratPartnerToken" ? (
                                 <div className="flex items-center gap-2">
                                   <Input
-                                    value={selectedIntegratPartnerToken}
+                                    value={editValue}
                                     onChange={(e) =>
-                                      setSelectedIntegratPartnerToken(
-                                        e.target.value
-                                      )
+                                      setEditValue(e.target.value)
                                     }
-                                    disabled={isUpdatingIntegratPartnerToken}
+                                    disabled={isUpdatingField}
                                     placeholder="Cole o token do parceiro"
                                     className="flex-1 font-mono"
                                   />
                                   <Button
                                     variant="outline"
                                     size="sm"
-                                    onClick={handleUpdateIntegratPartnerToken}
-                                    disabled={isUpdatingIntegratPartnerToken}
+                                    onClick={saveEdit}
+                                    disabled={isUpdatingField}
                                     className="flex items-center gap-1"
                                   >
-                                    {isUpdatingIntegratPartnerToken ? (
+                                    {isUpdatingField ? (
                                       <LoaderIcon className="h-3 w-3 animate-spin" />
                                     ) : (
                                       <SaveIcon className="h-3 w-3" />
@@ -1359,10 +1529,8 @@ export default function SearchUser() {
                                   <Button
                                     variant="ghost"
                                     size="sm"
-                                    onClick={
-                                      handleCancelEditIntegratPartnerToken
-                                    }
-                                    disabled={isUpdatingIntegratPartnerToken}
+                                    onClick={cancelEdit}
+                                    disabled={isUpdatingField}
                                     className="h-8 w-8 p-0"
                                   >
                                     <XIcon className="h-3 w-3" />
@@ -1370,7 +1538,7 @@ export default function SearchUser() {
                                 </div>
                               ) : (
                                 <p className="text-base font-mono bg-gray-50 dark:bg-zinc-800 px-3 py-2 rounded-md">
-                                  {searchResult.data.user.integratPartnerToken ||
+                                  {searchResult.data!.user.integratPartnerToken ||
                                     "Não definido"}
                                 </p>
                               )}
@@ -1391,25 +1559,30 @@ export default function SearchUser() {
                               <div className="flex items-center gap-2 text-sm font-medium text-gray-600 dark:text-zinc-400">
                                 Plano
                               </div>
-                              {!isEditingPlan && (
+                              {editingField !== "plan" && (
                                 <Button
                                   variant="ghost"
                                   size="sm"
-                                  onClick={handleEditPlan}
+                                  onClick={() =>
+                                    beginEdit(
+                                      "plan",
+                                      searchResult.data!.user.subscription.plan
+                                    )
+                                  }
                                   className="h-6 w-6 p-0 text-gray-500 hover:text-blue-600 dark:text-zinc-400 dark:hover:text-blue-400"
                                 >
                                   <EditIcon className="h-3 w-3" />
                                 </Button>
                               )}
                             </div>
-                            {isEditingPlan ? (
+                            {editingField === "plan" ? (
                               <div className="flex items-center gap-2">
                                 <select
-                                  value={selectedPlan}
+                                  value={editValue}
                                   onChange={(e) =>
-                                    setSelectedPlan(e.target.value)
+                                    setEditValue(e.target.value)
                                   }
-                                  disabled={isUpdatingPlan}
+                                  disabled={isUpdatingField}
                                   className="flex-1 h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                                 >
                                   <option value="">Selecione um plano</option>
@@ -1423,11 +1596,11 @@ export default function SearchUser() {
                                 <Button
                                   variant="outline"
                                   size="sm"
-                                  onClick={handleUpdatePlan}
-                                  disabled={isUpdatingPlan || !selectedPlan}
+                                  onClick={saveEdit}
+                                  disabled={isUpdatingField || !editValue}
                                   className="flex items-center gap-1"
                                 >
-                                  {isUpdatingPlan ? (
+                                  {isUpdatingField ? (
                                     <LoaderIcon className="h-3 w-3 animate-spin" />
                                   ) : (
                                     <SaveIcon className="h-3 w-3" />
@@ -1436,8 +1609,8 @@ export default function SearchUser() {
                                 <Button
                                   variant="ghost"
                                   size="sm"
-                                  onClick={handleCancelEditPlan}
-                                  disabled={isUpdatingPlan}
+                                  onClick={cancelEdit}
+                                  disabled={isUpdatingField}
                                   className="h-8 w-8 p-0"
                                 >
                                   <XIcon className="h-3 w-3" />
@@ -1445,192 +1618,57 @@ export default function SearchUser() {
                               </div>
                             ) : (
                               <p className="text-base capitalize px-3 py-2 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 rounded-md font-medium">
-                                {searchResult.data.user.subscription.plan}
+                                {searchResult.data!.user.subscription.plan}
                               </p>
                             )}
                           </div>
 
                           <div className="space-y-2">
-                            <div className="flex items-center gap-2 text-sm font-medium text-gray-600 dark:text-zinc-400">
-                              Status da Assinatura
-                            </div>
-                            <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-gray-50 dark:bg-zinc-800">
-                              {getStatusIcon(
-                                searchResult.data.user.subscription.status
-                              )}
-                              <span className="capitalize font-medium">
-                                {searchResult.data.user.subscription.status}
-                              </span>
-                            </div>
-                          </div>
-
-                          <div className="space-y-2">
-                            <div className="flex items-center gap-2 text-sm font-medium text-gray-600 dark:text-zinc-400">
-                              Cancelar no Fim do Período
-                            </div>
-                            <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-gray-50 dark:bg-zinc-800">
-                              {searchResult.data.user.subscription
-                                .cancelAtPeriodEnd ? (
-                                <>
-                                  <span className="text-red-600 dark:text-red-400 font-medium">
-                                    Sim
-                                  </span>
-                                </>
-                              ) : (
-                                <>
-                                  <span className="text-green-600 dark:text-green-400 font-medium">
-                                    Não
-                                  </span>
-                                </>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Stripe Information */}
-                      {(searchResult.data.user.subscription.stripeCustomerId ||
-                        searchResult.data.user.subscription
-                          .stripeSubscriptionId) && (
-                        <div>
-                          <h3 className="text-lg font-semibold text-gray-900 dark:text-zinc-50 mb-4 flex items-center gap-2">
-                            <CreditCardIcon className="h-5 w-5" />
-                            Informações do Stripe
-                          </h3>
-                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-4">
-                            {searchResult.data.user.subscription
-                              .stripeCustomerId && (
-                              <div className="space-y-2">
-                                <div className="flex items-center gap-2 text-sm font-medium text-gray-600 dark:text-zinc-400">
-                                  Stripe Customer ID
-                                </div>
-                                <p className="text-sm font-mono bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300 px-3 py-2 rounded-md">
-                                  {
-                                    searchResult.data.user.subscription
-                                      .stripeCustomerId
-                                  }
-                                </p>
-                              </div>
-                            )}
-
-                            {searchResult.data.user.subscription
-                              .stripeSubscriptionId && (
-                              <div className="space-y-2">
-                                <div className="flex items-center gap-2 text-sm font-medium text-gray-600 dark:text-zinc-400">
-                                  Stripe Subscription ID
-                                </div>
-                                <p className="text-sm font-mono bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300 px-3 py-2 rounded-md">
-                                  {
-                                    searchResult.data.user.subscription
-                                      .stripeSubscriptionId
-                                  }
-                                </p>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Billing Period Information */}
-                      {(searchResult.data.user.subscription
-                        .currentPeriodStart ||
-                        searchResult.data.user.subscription.currentPeriodEnd ||
-                        searchResult.data.user.subscription.trialEnd) && (
-                        <div>
-                          <h3 className="text-lg font-semibold text-gray-900 dark:text-zinc-50 mb-4 flex items-center gap-2">
-                            <CalendarIcon className="h-5 w-5" />
-                            Períodos de Cobrança
-                          </h3>
-                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-4">
-                            {searchResult.data.user.subscription
-                              .currentPeriodStart && (
-                              <div className="space-y-2">
-                                <div className="flex items-center gap-2 text-sm font-medium text-gray-600 dark:text-zinc-400">
-                                  Início do Período
-                                </div>
-                                <p className="text-sm text-gray-600 dark:text-zinc-400 px-3 py-2 bg-gray-50 dark:bg-zinc-800 rounded-md">
-                                  {formatDate(
-                                    searchResult.data.user.subscription
-                                      .currentPeriodStart
-                                  )}
-                                </p>
-                              </div>
-                            )}
-
-                            {searchResult.data.user.subscription
-                              .currentPeriodEnd && (
-                              <div className="space-y-2">
-                                <div className="flex items-center gap-2 text-sm font-medium text-gray-600 dark:text-zinc-400">
-                                  Fim do Período
-                                </div>
-                                <p className="text-sm text-gray-600 dark:text-zinc-400 px-3 py-2 bg-gray-50 dark:bg-zinc-800 rounded-md">
-                                  {formatDate(
-                                    searchResult.data.user.subscription
-                                      .currentPeriodEnd
-                                  )}
-                                </p>
-                              </div>
-                            )}
-
-                            {searchResult.data.user.subscription.trialEnd && (
-                              <div className="space-y-2">
-                                <div className="flex items-center gap-2 text-sm font-medium text-gray-600 dark:text-zinc-400">
-                                  Fim do Trial
-                                </div>
-                                <p className="text-sm text-orange-600 dark:text-orange-400 px-3 py-2 bg-orange-50 dark:bg-orange-900/20 rounded-md font-medium">
-                                  {formatDate(
-                                    searchResult.data.user.subscription.trialEnd
-                                  )}
-                                </p>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Usage Information */}
-                      <div>
-                        <h3 className="text-lg font-semibold text-gray-900 dark:text-zinc-50 mb-4 flex items-center gap-2">
-                          <ActivityIcon className="h-5 w-5" />
-                          Uso da Plataforma
-                        </h3>
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-1 gap-4">
-                          <div className="space-y-2">
                             <div className="flex items-center justify-between">
                               <div className="flex items-center gap-2 text-sm font-medium text-gray-600 dark:text-zinc-400">
-                                Uso Mensal de Exames
+                                Status da Assinatura
                               </div>
-                              {!isEditingUsage && (
+                              {editingField !== "subscription.status" && (
                                 <Button
                                   variant="ghost"
                                   size="sm"
-                                  onClick={handleEditUsage}
-                                  className="h-6 w-6 p-0 text-gray-500 hover:text-green-600 dark:text-zinc-400 dark:hover:text-green-400"
+                                  onClick={() =>
+                                    beginEdit(
+                                      "subscription.status",
+                                      searchResult.data!.user.subscription.status
+                                    )
+                                  }
+                                  className="h-6 w-6 p-0 text-gray-500 hover:text-blue-600 dark:text-zinc-400 dark:hover:text-blue-400"
+                                  disabled={isUpdatingField}
+                                  title="Editar status"
                                 >
                                   <EditIcon className="h-3 w-3" />
                                 </Button>
                               )}
                             </div>
-                            {isEditingUsage ? (
+                            {editingField === "subscription.status" ? (
                               <div className="flex items-center gap-2">
-                                <input
-                                  type="number"
-                                  value={selectedUsage}
+                                <select
+                                  value={editValue}
                                   onChange={(e) =>
-                                    setSelectedUsage(e.target.value)
+                                    setEditValue(e.target.value)
                                   }
-                                  disabled={isUpdatingUsage}
-                                  min="0"
+                                  disabled={isUpdatingField}
                                   className="flex-1 h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                                />
+                                >
+                                  <option value="active">active</option>
+                                  <option value="canceled">canceled</option>
+                                  <option value="past_due">past_due</option>
+                                  <option value="unpaid">unpaid</option>
+                                  <option value="incomplete">incomplete</option>
+                                </select>
                                 <Button
                                   variant="outline"
                                   size="sm"
-                                  onClick={handleUpdateUsage}
-                                  disabled={isUpdatingUsage || !selectedUsage}
-                                  className="flex items-center gap-1"
+                                  onClick={saveEdit}
+                                  disabled={isUpdatingField || !editValue}
                                 >
-                                  {isUpdatingUsage ? (
+                                  {isUpdatingField ? (
                                     <LoaderIcon className="h-3 w-3 animate-spin" />
                                   ) : (
                                     <SaveIcon className="h-3 w-3" />
@@ -1639,8 +1677,547 @@ export default function SearchUser() {
                                 <Button
                                   variant="ghost"
                                   size="sm"
-                                  onClick={handleCancelEditUsage}
-                                  disabled={isUpdatingUsage}
+                                  onClick={cancelEdit}
+                                  disabled={isUpdatingField}
+                                  className="h-8 w-8 p-0"
+                                >
+                                  <XIcon className="h-3 w-3" />
+                                </Button>
+                              </div>
+                            ) : (
+                              <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-gray-50 dark:bg-zinc-800">
+                                {getStatusIcon(
+                                  searchResult.data!.user.subscription.status
+                                )}
+                                <span className="capitalize font-medium">
+                                  {searchResult.data!.user.subscription.status}
+                                </span>
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2 text-sm font-medium text-gray-600 dark:text-zinc-400">
+                                Cancelar no Fim do Período
+                              </div>
+                              {editingField !==
+                                "subscription.cancelAtPeriodEnd" && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() =>
+                                    beginEdit(
+                                      "subscription.cancelAtPeriodEnd",
+                                      searchResult.data!.user.subscription
+                                        .cancelAtPeriodEnd
+                                        ? "true"
+                                        : "false"
+                                    )
+                                  }
+                                  className="h-6 w-6 p-0 text-gray-500 hover:text-blue-600 dark:text-zinc-400 dark:hover:text-blue-400"
+                                  disabled={isUpdatingField}
+                                  title="Editar"
+                                >
+                                  <EditIcon className="h-3 w-3" />
+                                </Button>
+                              )}
+                            </div>
+                            {editingField ===
+                            "subscription.cancelAtPeriodEnd" ? (
+                              <div className="flex items-center gap-2">
+                                <select
+                                  value={editValue}
+                                  onChange={(e) =>
+                                    setEditValue(e.target.value)
+                                  }
+                                  disabled={isUpdatingField}
+                                  className="flex-1 h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                                >
+                                  <option value="false">Não</option>
+                                  <option value="true">Sim</option>
+                                </select>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={saveEdit}
+                                  disabled={isUpdatingField}
+                                >
+                                  {isUpdatingField ? (
+                                    <LoaderIcon className="h-3 w-3 animate-spin" />
+                                  ) : (
+                                    <SaveIcon className="h-3 w-3" />
+                                  )}
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={cancelEdit}
+                                  disabled={isUpdatingField}
+                                  className="h-8 w-8 p-0"
+                                >
+                                  <XIcon className="h-3 w-3" />
+                                </Button>
+                              </div>
+                            ) : (
+                              <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-gray-50 dark:bg-zinc-800">
+                                {searchResult.data!.user.subscription
+                                  .cancelAtPeriodEnd ? (
+                                  <>
+                                    <span className="text-red-600 dark:text-red-400 font-medium">
+                                      Sim
+                                    </span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <span className="text-green-600 dark:text-green-400 font-medium">
+                                      Não
+                                    </span>
+                                  </>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Stripe Information */}
+                      <div>
+                        <h3 className="text-lg font-semibold text-gray-900 dark:text-zinc-50 mb-4 flex items-center gap-2">
+                          <CreditCardIcon className="h-5 w-5" />
+                          Informações do Stripe
+                        </h3>
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-4">
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2 text-sm font-medium text-gray-600 dark:text-zinc-400">
+                                Stripe Customer ID
+                              </div>
+                              {editingField !==
+                                "subscription.stripeCustomerId" && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() =>
+                                    beginEdit(
+                                      "subscription.stripeCustomerId",
+                                      searchResult.data!.user.subscription
+                                        .stripeCustomerId ?? ""
+                                    )
+                                  }
+                                  className="h-6 w-6 p-0 text-gray-500 hover:text-blue-600 dark:text-zinc-400 dark:hover:text-blue-400"
+                                  disabled={isUpdatingField}
+                                  title="Editar"
+                                >
+                                  <EditIcon className="h-3 w-3" />
+                                </Button>
+                              )}
+                            </div>
+                            {editingField ===
+                            "subscription.stripeCustomerId" ? (
+                              <div className="flex items-center gap-2">
+                                <Input
+                                  value={editValue}
+                                  onChange={(e) =>
+                                    setEditValue(e.target.value)
+                                  }
+                                  disabled={isUpdatingField}
+                                  className="font-mono flex-1"
+                                />
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={saveEdit}
+                                  disabled={isUpdatingField}
+                                >
+                                  {isUpdatingField ? (
+                                    <LoaderIcon className="h-3 w-3 animate-spin" />
+                                  ) : (
+                                    <SaveIcon className="h-3 w-3" />
+                                  )}
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={cancelEdit}
+                                  disabled={isUpdatingField}
+                                  className="h-8 w-8 p-0"
+                                >
+                                  <XIcon className="h-3 w-3" />
+                                </Button>
+                              </div>
+                            ) : (
+                              <p className="text-sm font-mono bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300 px-3 py-2 rounded-md">
+                                {searchResult.data!.user.subscription
+                                  .stripeCustomerId || "—"}
+                              </p>
+                            )}
+                          </div>
+
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2 text-sm font-medium text-gray-600 dark:text-zinc-400">
+                                Stripe Subscription ID
+                              </div>
+                              {editingField !==
+                                "subscription.stripeSubscriptionId" && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() =>
+                                    beginEdit(
+                                      "subscription.stripeSubscriptionId",
+                                      searchResult.data!.user.subscription
+                                        .stripeSubscriptionId ?? ""
+                                    )
+                                  }
+                                  className="h-6 w-6 p-0 text-gray-500 hover:text-blue-600 dark:text-zinc-400 dark:hover:text-blue-400"
+                                  disabled={isUpdatingField}
+                                  title="Editar"
+                                >
+                                  <EditIcon className="h-3 w-3" />
+                                </Button>
+                              )}
+                            </div>
+                            {editingField ===
+                            "subscription.stripeSubscriptionId" ? (
+                              <div className="flex items-center gap-2">
+                                <Input
+                                  value={editValue}
+                                  onChange={(e) =>
+                                    setEditValue(e.target.value)
+                                  }
+                                  disabled={isUpdatingField}
+                                  className="font-mono flex-1"
+                                />
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={saveEdit}
+                                  disabled={isUpdatingField}
+                                >
+                                  {isUpdatingField ? (
+                                    <LoaderIcon className="h-3 w-3 animate-spin" />
+                                  ) : (
+                                    <SaveIcon className="h-3 w-3" />
+                                  )}
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={cancelEdit}
+                                  disabled={isUpdatingField}
+                                  className="h-8 w-8 p-0"
+                                >
+                                  <XIcon className="h-3 w-3" />
+                                </Button>
+                              </div>
+                            ) : (
+                              <p className="text-sm font-mono bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300 px-3 py-2 rounded-md">
+                                {searchResult.data!.user.subscription
+                                  .stripeSubscriptionId || "—"}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Billing Period Information */}
+                      <div>
+                        <h3 className="text-lg font-semibold text-gray-900 dark:text-zinc-50 mb-4 flex items-center gap-2">
+                          <CalendarIcon className="h-5 w-5" />
+                          Períodos de Cobrança
+                        </h3>
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-4">
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2 text-sm font-medium text-gray-600 dark:text-zinc-400">
+                                Início do Período
+                              </div>
+                              {editingField !==
+                                "subscription.currentPeriodStart" && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() =>
+                                    beginEdit(
+                                      "subscription.currentPeriodStart",
+                                      dateToDatetimeLocalValue(
+                                        searchResult.data!.user.subscription
+                                          .currentPeriodStart
+                                      )
+                                    )
+                                  }
+                                  className="h-6 w-6 p-0 text-gray-500 hover:text-blue-600 dark:text-zinc-400 dark:hover:text-blue-400"
+                                  disabled={isUpdatingField}
+                                  title="Editar"
+                                >
+                                  <EditIcon className="h-3 w-3" />
+                                </Button>
+                              )}
+                            </div>
+                            {editingField ===
+                            "subscription.currentPeriodStart" ? (
+                              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                                <input
+                                  type="datetime-local"
+                                  value={editValue}
+                                  onChange={(e) =>
+                                    setEditValue(e.target.value)
+                                  }
+                                  disabled={isUpdatingField}
+                                  className="flex-1 h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
+                                />
+                                <div className="flex gap-2">
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={saveEdit}
+                                    disabled={isUpdatingField}
+                                  >
+                                    {isUpdatingField ? (
+                                      <LoaderIcon className="h-3 w-3 animate-spin" />
+                                    ) : (
+                                      <SaveIcon className="h-3 w-3" />
+                                    )}
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={cancelEdit}
+                                    disabled={isUpdatingField}
+                                    className="h-8 w-8 p-0"
+                                  >
+                                    <XIcon className="h-3 w-3" />
+                                  </Button>
+                                </div>
+                              </div>
+                            ) : (
+                              <p className="text-sm text-gray-600 dark:text-zinc-400 px-3 py-2 bg-gray-50 dark:bg-zinc-800 rounded-md">
+                                {searchResult.data!.user.subscription
+                                  .currentPeriodStart
+                                  ? formatDate(
+                                      searchResult.data!.user.subscription
+                                        .currentPeriodStart
+                                    )
+                                  : "—"}
+                              </p>
+                            )}
+                          </div>
+
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2 text-sm font-medium text-gray-600 dark:text-zinc-400">
+                                Fim do Período
+                              </div>
+                              {editingField !==
+                                "subscription.currentPeriodEnd" && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() =>
+                                    beginEdit(
+                                      "subscription.currentPeriodEnd",
+                                      dateToDatetimeLocalValue(
+                                        searchResult.data!.user.subscription
+                                          .currentPeriodEnd
+                                      )
+                                    )
+                                  }
+                                  className="h-6 w-6 p-0 text-gray-500 hover:text-blue-600 dark:text-zinc-400 dark:hover:text-blue-400"
+                                  disabled={isUpdatingField}
+                                  title="Editar"
+                                >
+                                  <EditIcon className="h-3 w-3" />
+                                </Button>
+                              )}
+                            </div>
+                            {editingField ===
+                            "subscription.currentPeriodEnd" ? (
+                              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                                <input
+                                  type="datetime-local"
+                                  value={editValue}
+                                  onChange={(e) =>
+                                    setEditValue(e.target.value)
+                                  }
+                                  disabled={isUpdatingField}
+                                  className="flex-1 h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
+                                />
+                                <div className="flex gap-2">
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={saveEdit}
+                                    disabled={isUpdatingField}
+                                  >
+                                    {isUpdatingField ? (
+                                      <LoaderIcon className="h-3 w-3 animate-spin" />
+                                    ) : (
+                                      <SaveIcon className="h-3 w-3" />
+                                    )}
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={cancelEdit}
+                                    disabled={isUpdatingField}
+                                    className="h-8 w-8 p-0"
+                                  >
+                                    <XIcon className="h-3 w-3" />
+                                  </Button>
+                                </div>
+                              </div>
+                            ) : (
+                              <p className="text-sm text-gray-600 dark:text-zinc-400 px-3 py-2 bg-gray-50 dark:bg-zinc-800 rounded-md">
+                                {searchResult.data!.user.subscription
+                                  .currentPeriodEnd
+                                  ? formatDate(
+                                      searchResult.data!.user.subscription
+                                        .currentPeriodEnd
+                                    )
+                                  : "—"}
+                              </p>
+                            )}
+                          </div>
+
+                          <div className="space-y-2 md:col-span-2">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2 text-sm font-medium text-gray-600 dark:text-zinc-400">
+                                Fim do Trial
+                              </div>
+                              {editingField !== "subscription.trialEnd" && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() =>
+                                    beginEdit(
+                                      "subscription.trialEnd",
+                                      dateToDatetimeLocalValue(
+                                        searchResult.data!.user.subscription
+                                          .trialEnd
+                                      )
+                                    )
+                                  }
+                                  className="h-6 w-6 p-0 text-gray-500 hover:text-blue-600 dark:text-zinc-400 dark:hover:text-blue-400"
+                                  disabled={isUpdatingField}
+                                  title="Editar"
+                                >
+                                  <EditIcon className="h-3 w-3" />
+                                </Button>
+                              )}
+                            </div>
+                            {editingField === "subscription.trialEnd" ? (
+                              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 max-w-xl">
+                                <input
+                                  type="datetime-local"
+                                  value={editValue}
+                                  onChange={(e) =>
+                                    setEditValue(e.target.value)
+                                  }
+                                  disabled={isUpdatingField}
+                                  className="flex-1 h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
+                                />
+                                <div className="flex gap-2">
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={saveEdit}
+                                    disabled={isUpdatingField}
+                                  >
+                                    {isUpdatingField ? (
+                                      <LoaderIcon className="h-3 w-3 animate-spin" />
+                                    ) : (
+                                      <SaveIcon className="h-3 w-3" />
+                                    )}
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={cancelEdit}
+                                    disabled={isUpdatingField}
+                                    className="h-8 w-8 p-0"
+                                  >
+                                    <XIcon className="h-3 w-3" />
+                                  </Button>
+                                </div>
+                              </div>
+                            ) : (
+                              <p className="text-sm text-orange-600 dark:text-orange-400 px-3 py-2 bg-orange-50 dark:bg-orange-900/20 rounded-md font-medium">
+                                {searchResult.data!.user.subscription.trialEnd
+                                  ? formatDate(
+                                      searchResult.data!.user.subscription.trialEnd
+                                    )
+                                  : "—"}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Usage Information */}
+                      <div>
+                        <h3 className="text-lg font-semibold text-gray-900 dark:text-zinc-50 mb-4 flex items-center gap-2">
+                          <ActivityIcon className="h-5 w-5" />
+                          Uso da Plataforma
+                        </h3>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2 text-sm font-medium text-gray-600 dark:text-zinc-400">
+                                Uso Mensal de Exames
+                              </div>
+                              {editingField !== "usage" && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() =>
+                                    beginEdit(
+                                      "usage",
+                                      String(
+                                        searchResult.data!.user.usage
+                                          .examsThisPeriod
+                                      )
+                                    )
+                                  }
+                                  className="h-6 w-6 p-0 text-gray-500 hover:text-green-600 dark:text-zinc-400 dark:hover:text-green-400"
+                                >
+                                  <EditIcon className="h-3 w-3" />
+                                </Button>
+                              )}
+                            </div>
+                            {editingField === "usage" ? (
+                              <div className="flex items-center gap-2">
+                                <input
+                                  type="number"
+                                  value={editValue}
+                                  onChange={(e) =>
+                                    setEditValue(e.target.value)
+                                  }
+                                  disabled={isUpdatingField}
+                                  min="0"
+                                  className="flex-1 h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                                />
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={saveEdit}
+                                  disabled={
+                                    isUpdatingField || editValue.trim() === ""
+                                  }
+                                  className="flex items-center gap-1"
+                                >
+                                  {isUpdatingField ? (
+                                    <LoaderIcon className="h-3 w-3 animate-spin" />
+                                  ) : (
+                                    <SaveIcon className="h-3 w-3" />
+                                  )}
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={cancelEdit}
+                                  disabled={isUpdatingField}
                                   className="h-8 w-8 p-0"
                                 >
                                   <XIcon className="h-3 w-3" />
@@ -1651,7 +2228,7 @@ export default function SearchUser() {
                                 <div className="flex items-center justify-between">
                                   <span className="text-2xl font-bold text-green-600 dark:text-green-400">
                                     {
-                                      searchResult.data.user.usage
+                                      searchResult.data!.user.usage
                                         .examsThisPeriod
                                     }
                                   </span>
@@ -1662,13 +2239,86 @@ export default function SearchUser() {
                                     <div className="text-xs text-gray-500 dark:text-zinc-500">
                                       Reset:{" "}
                                       {formatDate(
-                                        searchResult.data.user.usage
+                                        searchResult.data!.user.usage
                                           .examsThisPeriodResetDate
                                       )}
                                     </div>
                                   </div>
                                 </div>
                               </div>
+                            )}
+                          </div>
+
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2 text-sm font-medium text-gray-600 dark:text-zinc-400">
+                                Data de reset do uso
+                              </div>
+                              {editingField !==
+                                "usage.examsThisPeriodResetDate" && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() =>
+                                    beginEdit(
+                                      "usage.examsThisPeriodResetDate",
+                                      dateToDatetimeLocalValue(
+                                        searchResult.data!.user.usage
+                                          .examsThisPeriodResetDate
+                                      )
+                                    )
+                                  }
+                                  className="h-6 w-6 p-0 text-gray-500 hover:text-blue-600 dark:text-zinc-400 dark:hover:text-blue-400"
+                                  disabled={isUpdatingField}
+                                  title="Editar data de reset"
+                                >
+                                  <EditIcon className="h-3 w-3" />
+                                </Button>
+                              )}
+                            </div>
+                            {editingField ===
+                            "usage.examsThisPeriodResetDate" ? (
+                              <div className="flex flex-col gap-2">
+                                <input
+                                  type="datetime-local"
+                                  value={editValue}
+                                  onChange={(e) =>
+                                    setEditValue(e.target.value)
+                                  }
+                                  disabled={isUpdatingField}
+                                  className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                                />
+                                <div className="flex gap-2">
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={saveEdit}
+                                    disabled={isUpdatingField}
+                                  >
+                                    {isUpdatingField ? (
+                                      <LoaderIcon className="h-3 w-3 animate-spin" />
+                                    ) : (
+                                      <SaveIcon className="h-3 w-3" />
+                                    )}
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={cancelEdit}
+                                    disabled={isUpdatingField}
+                                    className="h-8 w-8 p-0"
+                                  >
+                                    <XIcon className="h-3 w-3" />
+                                  </Button>
+                                </div>
+                              </div>
+                            ) : (
+                              <p className="text-sm text-gray-600 dark:text-zinc-400 px-3 py-2 bg-gray-50 dark:bg-zinc-800 rounded-md">
+                                {formatDate(
+                                  searchResult.data!.user.usage
+                                    .examsThisPeriodResetDate
+                                )}
+                              </p>
                             )}
                           </div>
                         </div>
@@ -1686,7 +2336,7 @@ export default function SearchUser() {
                               Cadastrado em
                             </div>
                             <p className="text-sm text-gray-600 dark:text-zinc-400 px-3 py-2 bg-gray-50 dark:bg-zinc-800 rounded-md">
-                              {formatDate(searchResult.data.user.createdAt)}
+                              {formatDate(searchResult.data!.user.createdAt)}
                             </p>
                           </div>
 
@@ -1695,7 +2345,7 @@ export default function SearchUser() {
                               Última Atualização
                             </div>
                             <p className="text-sm text-gray-600 dark:text-zinc-400 px-3 py-2 bg-gray-50 dark:bg-zinc-800 rounded-md">
-                              {formatDate(searchResult.data.user.updatedAt)}
+                              {formatDate(searchResult.data!.user.updatedAt)}
                             </p>
                           </div>
                         </div>
